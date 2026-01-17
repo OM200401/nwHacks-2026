@@ -55,10 +55,20 @@ Developers inherit undocumented legacy codebases and spend 60%+ of their time tr
 ## Prize Targets
 🎯 Telus Innovation ($1,000) | Block AI ($400) | 1Password Security ($400) | Warp Dev Tool | Best Design | 6+ MLH prizes
 
-## Timeline
-- Hour 0-2: Issues #1-2 (setup)
-- Hour 2-6: Issues #3-4, #8-9 (core features)
-- Hour 6-10: Issues #5, #10-11 (AI integrations)
-- Hour 10-14: Issues #6-7, #12-13 (polish)
-- Hour 14-18: Issue #14 (testing)
-- Hour 18-24: Issues #15-16 (demo & submit)
+## Parallel Team Tasks (Backend)
+
+### Person 1: FastAPI Core & Routing
+**Files:** `main.py`, `app/core/config.py`, `app/models/schemas.py`, `app/routers/*.py`
+**Tasks:** Set up FastAPI server, CORS, route structure, Pydantic models, error handling, logging. Create all route stubs for other teammates to integrate with.
+
+### Person 2: Gemini AI & Prompt Engineering  
+**Files:** `app/services/gemini_service.py`, `app/prompts/analysis_prompts.py`, `app/utils/*.py`
+**Tasks:** Integrate Gemini API, write 4-tier explanation prompts, implement confusion score algorithm, code pattern detection, Mermaid diagram generation.
+
+### Person 3: Snowflake Database
+**Files:** `app/database/*.py`, `app/database/schema.sql`
+**Tasks:** Set up Snowflake connection, create database schema, implement CRUD operations (save/retrieve analyses), build search & pattern matching, implement caching.
+
+### Person 4: ElevenLabs Voice & Security
+**Files:** `app/services/voice_service.py`, `app/security/*.py`
+**Tasks:** Integrate ElevenLabs API for voice generation, implement audio caching, add JWT authentication, 1Password integration, API rate limiting.
