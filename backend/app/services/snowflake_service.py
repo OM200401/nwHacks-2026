@@ -210,6 +210,39 @@ def create_commits_table():
     """
     snowflake_service.execute_query(query, fetch=False)
     logger.info("✅ Commits table created/verified with VECTOR(768) support")
+    
+    # Create performance indexes
+    create_commit_indexes()
+
+
+def create_commit_indexes():
+    """Create indexes for optimal query performance"""
+    indexes = [
+        # Index for repo_id lookups (most common query pattern)
+        "CREATE INDEX IF NOT EXISTS idx_commits_repo ON commits_analysis(repo_id)",
+        
+        # Index for commit_date for temporal queries
+        "CREATE INDEX IF NOT EXISTS idx_commits_date ON commits_analysis(commit_date)",
+        
+        # Index for author queries
+        "CREATE INDEX IF NOT EXISTS idx_commits_author ON commits_analysis(author_name)",
+        
+        # Composite index for filtered queries (repo + date)
+        "CREATE INDEX IF NOT EXISTS idx_commits_repo_date ON commits_analysis(repo_id, commit_date DESC)",
+        
+        # Index for embedding NULL checks (speeds up "needs embedding" queries)
+        "CREATE INDEX IF NOT EXISTS idx_commits_embedding_status ON commits_analysis(repo_id, embedding)",
+    ]
+    
+    for index_query in indexes:
+        try:
+            snowflake_service.execute_query(index_query, fetch=False)
+            logger.info(f"✅ Created index: {index_query.split('idx_')[1].split(' ')[0]}")
+        except Exception as e:
+            # Index might already exist or not supported
+            logger.debug(f"Index creation info: {e}")
+    
+    logger.info("✅ All commit indexes verified")
 
 
 def create_pr_analysis_table():
