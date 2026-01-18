@@ -3,7 +3,7 @@ Snowflake-based CRUD operations
 Replaces in-memory dictionaries with Snowflake tables
 """
 
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime
 import json
@@ -20,7 +20,7 @@ async def create_or_update_user(
     github_username: str,
     encrypted_token_ref: str,
     email: Optional[str] = None
-) -> Dict:
+) -> Optional[Dict]:
     """Create new user or update existing"""
     
     # Check if user exists
@@ -89,7 +89,7 @@ async def create_repository(
     full_name: str,
     html_url: str,
     default_branch: str = "main"
-) -> Dict:
+) -> Optional[Dict]:
     """Create repository record for analysis"""
     
     # Check if repo already exists for this user
@@ -155,13 +155,13 @@ async def get_repository_by_github_id(user_id: str, github_repo_id: int) -> Opti
 async def update_repository_status(
     repo_id: str,
     status: str,
-    total_commits: int = None,
-    analyzed_commits: int = None
+    total_commits: Optional[int] = None,
+    analyzed_commits: Optional[int] = None
 ) -> Optional[Dict]:
     """Update repository analysis status"""
     
     update_fields = ["analysis_status = %s", "updated_at = CURRENT_TIMESTAMP()"]
-    params = [status]
+    params: List[Any] = [status]
     
     if total_commits is not None:
         update_fields.append("total_commits = %s")
@@ -204,10 +204,10 @@ async def create_commit(
     author_email: str,
     commit_date: str,
     html_url: str,
-    files_changed: List[str] = None,
+    files_changed: Optional[List[str]] = None,
     additions: int = 0,
     deletions: int = 0
-) -> Dict:
+) -> Optional[Dict]:
     """Store a commit record"""
     
     # Check if commit already exists

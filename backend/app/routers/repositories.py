@@ -133,6 +133,12 @@ async def analyze_repository(
             default_branch=request.default_branch
         )
         
+        if not repository:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create repository record"
+            )
+        
         # Get commit count from GitHub
         try:
             commit_count = await get_repository_commits_count(
@@ -143,12 +149,14 @@ async def analyze_repository(
             )
             
             # Update repository with commit count
-            repository = await update_repository_status(
+            updated_repo = await update_repository_status(
                 repository["id"],
                 status="pending",
                 total_commits=commit_count,
                 analyzed_commits=0
             )
+            if updated_repo:
+                repository = updated_repo
         except Exception as e:
             # If we can't get commit count, that's okay, continue anyway
             commit_count = 0
@@ -359,16 +367,17 @@ async def fetch_commits(
                 additions=additions,
                 deletions=deletions
             )
-            stored_commits.append({
-                "id": stored_commit["id"],
-                "sha": stored_commit["sha"][:7],  # Short SHA
-                "message": stored_commit["message"][:80],  # Truncate long messages
-                "author": stored_commit["author_name"],
-                "date": stored_commit["commit_date"],
-                "files_changed": len(files_changed),
-                "additions": additions,
-                "deletions": deletions
-            })
+            if stored_commit:
+                stored_commits.append({
+                    "id": stored_commit["id"],
+                    "sha": stored_commit["sha"][:7],  # Short SHA
+                    "message": stored_commit["message"][:80],  # Truncate long messages
+                    "author": stored_commit["author_name"],
+                    "date": stored_commit["commit_date"],
+                    "files_changed": len(files_changed),
+                    "additions": additions,
+                    "deletions": deletions
+                })
         
         # Get total stored commits count
         total_stored = await get_commits_count(repo_id)

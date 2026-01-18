@@ -61,13 +61,13 @@ class SnowflakeService:
             logger.info("✅ SQLAlchemy engine created for Snowflake")
         return self.engine
     
-    def execute_query(self, query: str, params: Dict = None, fetch: bool = True) -> Optional[List[Dict]]:
+    def execute_query(self, query: str, params: tuple = None, fetch: bool = True) -> Optional[List[Dict]]:
         """
         Execute a SQL query
         
         Args:
             query: SQL query string
-            params: Query parameters (optional)
+            params: Query parameters as tuple (optional)
             fetch: Whether to fetch results
         
         Returns:
