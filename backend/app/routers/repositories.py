@@ -13,6 +13,7 @@ from app.services.github_service import (
     fetch_repository_commits,
     fetch_commit_details
 )
+from app.services.gemini_service import build_prompt, polish_commits
 from app.database.crud import (
     get_user_by_id,
     create_repository,
@@ -20,7 +21,8 @@ from app.database.crud import (
     update_repository_status,
     create_commit,
     get_repository_commits,
-    get_commits_count
+    get_commits_count,
+    commits_db
 )
 from app.security.encryption import retrieve_github_token
 
@@ -436,6 +438,7 @@ async def list_commits(
                 "sha": commit["sha"],
                 "sha_short": commit["sha"][:7],
                 "message": commit["message"],
+                "ai_summary": commit["ai_summary"],  # Include AI summary
                 "author_name": commit["author_name"],
                 "author_email": commit["author_email"],
                 "commit_date": commit["commit_date"],
@@ -551,6 +554,235 @@ async def get_commit_details(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching commit details: {str(e)}"
+        )
+
+
+@router.post("/repositories/{repo_id}/commits/{commit_sha}/enhance")
+async def enhance_commit_message(
+    repo_id: str,
+    commit_sha: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Generate AI-enhanced commit message using Gemini
+    
+    Takes a commit and generates a professional, detailed commit message
+    following conventional commits style using Gemini AI.
+    
+    Requires: JWT authentication
+    
+    Path Parameters:
+        repo_id: Repository ID (UUID)
+        commit_sha: Commit SHA (can be short form)
+    
+    Returns:
+        Original and AI-enhanced commit messages
+    """
+    
+    try:
+        # Get repository from database
+        repository = await get_repository_by_id(repo_id)
+        
+        if not repository:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Repository not found"
+            )
+        
+        # Verify repository belongs to authenticated user
+        if repository["user_id"] != current_user["user_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this repository"
+            )
+        
+        # Get user's GitHub token
+        user = await get_user_by_id(current_user["user_id"])
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        github_token = await retrieve_github_token(user["encrypted_token_ref"])
+        
+        # Fetch commit details from GitHub
+        commit_details = await fetch_commit_details(
+            github_token,
+            repository["owner"],
+            repository["repo_name"],
+            commit_sha
+        )
+        
+        # Prepare commit data for gemini service
+        commit_data = {
+            "message": commit_details["message"],
+            "lines_added": commit_details["total_additions"],
+            "lines_deleted": commit_details["total_deletions"]
+        }
+        
+        # Use teammate's gemini service functions
+        polished_commits = polish_commits([commit_data])
+        ai_message = polished_commits[0]["ai_message"]
+        
+        # Update commit record in database with AI summary
+        for commit_id, commit in commits_db.items():
+            if commit["sha"] == commit_details["sha"] and commit["repo_id"] == repo_id:
+                commit["ai_summary"] = ai_message.strip()
+                commit["analysis_status"] = "analyzed"
+                break
+        
+        return {
+            "original_message": commit_details["message"],
+            "ai_enhanced_message": ai_message.strip(),
+            "commit_sha": commit_details["sha"],
+            "stats": {
+                "files_changed": len(commit_details["files_changed"]),
+                "additions": commit_details["total_additions"],
+                "deletions": commit_details["total_deletions"]
+            }
+        }
+        
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Commit not found"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"GitHub API error: {e.response.status_code}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error enhancing commit message: {str(e)}"
+        )
+
+
+@router.post("/repositories/{repo_id}/commits/batch-enhance")
+async def batch_enhance_commits(
+    repo_id: str,
+    limit: int = 10,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Generate AI-enhanced messages for multiple commits at once
+    
+    Processes up to 'limit' commits and generates AI-enhanced messages
+    for all of them. Useful for batch processing.
+    
+    Requires: JWT authentication
+    
+    Path Parameters:
+        repo_id: Repository ID (UUID)
+    
+    Query Parameters:
+        limit: Max commits to process (default: 10, max: 50)
+    
+    Returns:
+        List of enhanced commits with original and AI messages
+    """
+    
+    try:
+        # Limit to prevent abuse
+        limit = min(limit, 50)
+        
+        # Get repository from database
+        repository = await get_repository_by_id(repo_id)
+        
+        if not repository:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Repository not found"
+            )
+        
+        # Verify repository belongs to authenticated user
+        if repository["user_id"] != current_user["user_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this repository"
+            )
+        
+        # Get commits that haven't been analyzed yet
+        commits = await get_repository_commits(repo_id, limit=limit)
+        pending_commits = [c for c in commits if c["analysis_status"] == "pending"][:limit]
+        
+        if not pending_commits:
+            return {
+                "message": "No pending commits to enhance",
+                "processed": 0,
+                "results": []
+            }
+        
+        # Get user's GitHub token
+        user = await get_user_by_id(current_user["user_id"])
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        github_token = await retrieve_github_token(user["encrypted_token_ref"])
+        
+        results = []
+        
+        for commit in pending_commits:
+            try:
+                # Fetch full commit details from GitHub
+                commit_details = await fetch_commit_details(
+                    github_token,
+                    repository["owner"],
+                    repository["repo_name"],
+                    commit["sha"]
+                )
+                
+                # Prepare commit data for gemini service
+                commit_data = {
+                    "message": commit["message"],
+                    "lines_added": commit_details["total_additions"],
+                    "lines_deleted": commit_details["total_deletions"]
+                }
+                
+                # Use teammate's gemini service function
+                polished = polish_commits([commit_data])
+                ai_message = polished[0]["ai_message"]
+                
+                # Update commit in database
+                commit["ai_summary"] = ai_message.strip()
+                commit["analysis_status"] = "analyzed"
+                
+                results.append({
+                    "sha": commit["sha"][:7],
+                    "original": commit["message"],
+                    "ai_enhanced": ai_message.strip(),
+                    "status": "success"
+                })
+                
+            except Exception as e:
+                results.append({
+                    "sha": commit["sha"][:7],
+                    "original": commit["message"],
+                    "error": str(e),
+                    "status": "failed"
+                })
+        
+        return {
+            "message": f"Processed {len(results)} commits",
+            "processed": len(results),
+            "successful": len([r for r in results if r["status"] == "success"]),
+            "failed": len([r for r in results if r["status"] == "failed"]),
+            "results": results
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error batch enhancing commits: {str(e)}"
         )
 
 
