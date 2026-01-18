@@ -603,24 +603,6 @@ Answer:"""
 # ============================================================================
 # STEP 3: Embedding Status
 # ============================================================================
-            "answer": ai_answer,
-            "sources": sources,
-            "question": request.question,
-            "repository": repository["full_name"],
-            "model": request.model,
-            "commits_analyzed": len(similar_commits)
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Cortex RAG error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================================================
-# STEP 3: Simple Embedding Status Check
-# ============================================================================
 
 @router.get("/repositories/{repo_id}/embedding-status")
 async def get_embedding_status(

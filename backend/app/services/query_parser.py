@@ -55,16 +55,27 @@ Classify the query type and extract filters. Return ONLY valid JSON with this ex
 }}
 
 Classification Rules:
-- "temporal": ONLY time/count filters (last N, recent, yesterday, this week)
-- "semantic": ONLY meaning-based search (bug fixes, authentication, features)
-- "hybrid": BOTH temporal filters AND semantic meaning
+- "temporal": Time/count/author/file filters WITHOUT semantic search (last N, by author, recent, yesterday)
+  → Questions like "what", "why", "show me" with temporal filters are STILL temporal
+  → Just return the filtered commits, don't search by meaning
+- "semantic": ONLY meaning-based search when there's NO temporal filter (bug fixes, authentication, how did we)
+  → Search by concepts, keywords, topics
+- "hybrid": BOTH temporal filters AND specific semantic keywords that need similarity search
+  → Example: "authentication changes last week" (need to search for "authentication" within last week)
+
+IMPORTANT: Questions starting with "what/why/show me" followed by "last N commits" are TEMPORAL, not hybrid!
+The user just wants to see those N commits, not search semantically.
 
 Examples:
 Q: "last 5 commits" → {{"query_type": "temporal", "temporal": {{"type": "limit", "value": 5, "direction": "past"}}, "author": null, "files": null, "semantic_query": null}}
+Q: "what was done in the last 2 commits" → {{"query_type": "temporal", "temporal": {{"type": "limit", "value": 2, "direction": "past"}}, "author": null, "files": null, "semantic_query": null}}
+Q: "show me recent commits" → {{"query_type": "temporal", "temporal": {{"type": "limit", "value": 10, "direction": "past"}}, "author": null, "files": null, "semantic_query": null}}
 Q: "authentication bug fixes" → {{"query_type": "semantic", "temporal": null, "author": null, "files": null, "semantic_query": "authentication bug fixes"}}
-Q: "auth changes from last week" → {{"query_type": "hybrid", "temporal": {{"type": "days", "value": 7, "direction": "past"}}, "author": null, "files": null, "semantic_query": "auth changes"}}
+Q: "how did we handle authentication" → {{"query_type": "semantic", "temporal": null, "author": null, "files": null, "semantic_query": "how did we handle authentication"}}
+Q: "authentication changes from last week" → {{"query_type": "hybrid", "temporal": {{"type": "days", "value": 7, "direction": "past"}}, "author": null, "files": null, "semantic_query": "authentication changes"}}
 Q: "commits by John" → {{"query_type": "temporal", "temporal": null, "author": "John", "files": null, "semantic_query": null}}
-Q: "what did Sarah change in auth.py yesterday" → {{"query_type": "hybrid", "temporal": {{"type": "days", "value": 1, "direction": "past"}}, "author": "Sarah", "files": ["auth.py"], "semantic_query": null}}
+Q: "what did John commit yesterday" → {{"query_type": "temporal", "temporal": {{"type": "days", "value": 1, "direction": "past"}}, "author": "John", "files": null, "semantic_query": null}}
+Q: "John's authentication changes yesterday" → {{"query_type": "hybrid", "temporal": {{"type": "days", "value": 1, "direction": "past"}}, "author": "John", "files": null, "semantic_query": "authentication changes"}}
 
 Now parse this question and return ONLY the JSON:
 """

@@ -615,14 +615,19 @@
                 <!-- Query Section -->
                 <div class="query-section">
                     <h3>❓ Ask Questions About Code History</h3>
-                    <p style="color: #64748b; font-size: 14px; margin-bottom: 12px;">
-                        Ask anything about this repository's commit history. AI will search similar commits and generate an answer.
+                    <p style="color: #64748b; font-size: 14px; margin-bottom: 8px;">
+                        Ask anything about this repository's commit history. AI automatically detects query type:
                     </p>
+                    <div style="margin-bottom: 12px; font-size: 13px; color: #475569;">
+                        <div>⏱️ <strong>Temporal:</strong> "last 5 commits", "what did John commit yesterday?"</div>
+                        <div>🔍 <strong>Semantic:</strong> "authentication bugs", "how did we handle errors?"</div>
+                        <div>🎯 <strong>Hybrid:</strong> "auth changes from last week", "Sarah's commits this month"</div>
+                    </div>
                     
                     <textarea 
                         id="ragQuery" 
                         class="query-input" 
-                        placeholder="Example: What authentication changes were made?\nExample: How did we handle error logging?\nExample: What performance improvements were implemented?"
+                        placeholder="Try: last 5 commits\nTry: authentication bug fixes\nTry: auth changes from last week"
                     ></textarea>
                     
                     <div style="display: flex; gap: 8px; margin-top: 8px;">
@@ -637,7 +642,10 @@
                     
                     <!-- Answer Display -->
                     <div id="answerContainer" class="hidden" style="margin-top: 16px;">
-                        <h4 style="color: #1f2937; margin-bottom: 8px;">💡 Answer:</h4>
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                            <h4 style="color: #1f2937; margin: 0;">💡 Answer:</h4>
+                            <span id="queryTypeBadge" class="query-type-badge"></span>
+                        </div>
                         <div id="answerBox" class="answer-box"></div>
                         
                         <div id="sourcesContainer" class="sources-section hidden">
@@ -1327,6 +1335,22 @@
                 
                 const data = await response.json();
                 
+                // Display query type badge
+                const queryTypeBadge = document.getElementById('queryTypeBadge');
+                const queryType = data.query_type || 'semantic';
+                const badgeColors = {
+                    'temporal': 'background: #fef3c7; color: #92400e; border: 1px solid #fbbf24',
+                    'semantic': 'background: #dbeafe; color: #1e40af; border: 1px solid #60a5fa',
+                    'hybrid': 'background: #dcfce7; color: #166534; border: 1px solid #4ade80'
+                };
+                const badgeIcons = {
+                    'temporal': '⏱️',
+                    'semantic': '🔍',
+                    'hybrid': '🎯'
+                };
+                queryTypeBadge.textContent = `${badgeIcons[queryType]} ${queryType.toUpperCase()}`;
+                queryTypeBadge.style.cssText = `padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; ${badgeColors[queryType]}`;
+                
                 // Display answer
                 document.getElementById('answerBox').textContent = data.answer;
                 document.getElementById('answerContainer').classList.remove('hidden');
@@ -1336,7 +1360,8 @@
                     const sourcesList = document.getElementById('sourcesList');
                     sourcesList.innerHTML = data.sources.map(source => `
                         <div class="source-item">
-                            <span class="source-similarity">${(source.similarity * 100).toFixed(1)}% match</span>
+                            ${source.similarity !== undefined ? `<span class="source-similarity">${(source.similarity * 100).toFixed(1)}% match</span>` : ''}
+                            ${source.commit_date ? `<span class="source-similarity" style="margin-left: 8px;">📅 ${new Date(source.commit_date).toLocaleDateString()}</span>` : ''}
                             <div class="source-sha">${source.sha.substring(0, 7)}</div>
                             <div style="margin-top: 4px; color: #1f2937; font-size: 14px;">
                                 ${escapeHtml(source.message)}
