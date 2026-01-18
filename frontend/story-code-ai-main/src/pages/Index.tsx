@@ -209,7 +209,13 @@ const Index = () => {
       try {
         console.log("Fetching commits for repo ✅", REPO_ID);  // 2
   
-        const data = await fetchCommits(REPO_ID, 50, 0);
+        const token = localStorage.getItem("token");
+        if (!token) {
+          console.error("❌ No auth token found");
+          return;
+        }
+        
+        const data = await fetchCommits(REPO_ID, token);
         console.log("Commits API response ✅", data);          // 3
   
         const mapped: CommitNode[] = data.commits.map((c: any) => ({
