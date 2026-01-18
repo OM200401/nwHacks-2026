@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ExplanationPanel } from "@/components/ExplanationPanel";
 import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import { fetchCommits } from "@/lib/api";
 
 // Mock commit data
 const currentCommit = {
@@ -46,6 +48,7 @@ type CommitNode = {
   linkedSections: string[]; // IDs of related code sections
 };
 
+/*
 const commitNodes: CommitNode[] = [
   {
     id: "c1",
@@ -92,6 +95,10 @@ const commitNodes: CommitNode[] = [
     linkedSections: ["2"]
   }
 ];
+*/
+
+const REPO_ID = "baa266b7-6727-4c46-b09c-15b983ea6654";
+
 
 // Relevant code sections across multiple files
 type CodeSection = {
@@ -188,17 +195,45 @@ const relevantSections: CodeSection[] = [
 const Index = () => {
   const navigate = useNavigate();
   const [selectedCommitNode, setSelectedCommitNode] = useState<string | null>(null);
-  
+  const [commitNodes, setCommitNodes] = useState<CommitNode[]>([]);
+
   const [activeSection, setActiveSection] = useState("1");
   const [expandedSections, setExpandedSections] = useState<string[]>(["1"]);
   const [userQuestion, setUserQuestion] = useState("Why was the authentication system refactored in 2023?");
   const [questionInput, setQuestionInput] = useState("");
 
-  // Get active commit data based on selection
-  const activeCommit = selectedCommitNode 
-    ? commitNodes.find(n => n.id === selectedCommitNode) 
-    : commitNodes[0];
+  useEffect(() => {
+    console.log("Index mounted ✅");   // 1
+  
+    (async () => {
+      try {
+        console.log("Fetching commits for repo ✅", REPO_ID);  // 2
+  
+        const data = await fetchCommits(REPO_ID, 50, 0);
+        console.log("Commits API response ✅", data);          // 3
+  
+        const mapped: CommitNode[] = data.commits.map((c: any) => ({
+          id: c.sha_short,
+          hash: c.sha_short,
+          summary: c.ai_summary ?? c.message,
+          description: c.message,
+          date: c.commit_date,
+          author: c.author_name,
+          relevance: "medium",
+          fileCount: c.files_changed_count,
+          linkedSections: []
+        }));
+  
+        console.log("Mapped commits ✅", mapped.length, mapped[0]); // bonus
+  
+        setCommitNodes(mapped);
+      } catch (err) {
+        console.error("❌ Failed to load commits", err);
+      }
+    })();
+  }, []);
 
+    
   const handleNodeClick = useCallback((nodeId: string) => {
     if (selectedCommitNode === nodeId) {
       // Clicking same node closes the panel
@@ -211,11 +246,21 @@ const Index = () => {
         setActiveSection(node.linkedSections[0]);
       }
     }
-  }, [selectedCommitNode]);
+  }, [selectedCommitNode, commitNodes]);
 
   const handleCloseDetails = useCallback(() => {
     setSelectedCommitNode(null);
   }, []);
+
+// Get active commit data based on selection
+const activeCommit = selectedCommitNode 
+? commitNodes.find(n => n.id === selectedCommitNode) 
+: commitNodes[0] ?? null;
+
+if (!activeCommit) {
+  return <div className="p-6 text-white">Loading commits...</div>;
+}
+  
 
 
   return (
