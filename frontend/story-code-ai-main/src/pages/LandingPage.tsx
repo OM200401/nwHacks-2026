@@ -239,10 +239,36 @@ useEffect(() => {
                 Connected
               </div>
             )}
-            <Button variant="ghost" size="sm" onClick={startGithubLogin}>
-              <Github className="w-4 h-4 mr-2" />
-              Sign in
-            </Button>
+            {user ? (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50">
+                  <img 
+                    src={`https://github.com/${user.github_username}.png`} 
+                    alt={user.github_username}
+                    className="w-6 h-6 rounded-full"
+                  />
+                  <span className="text-sm font-medium text-foreground">{user.github_username}</span>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => {
+                    localStorage.removeItem("access_token");
+                    setUser(null);
+                    setIsConnected(false);
+                    setSelectedRepo(null);
+                    window.location.reload();
+                  }}
+                >
+                  Log out
+                </Button>
+              </div>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={startGithubLogin}>
+                <Github className="w-4 h-4 mr-2" />
+                Sign in
+              </Button>
+            )}
           </div>
         </div>
       </header>
