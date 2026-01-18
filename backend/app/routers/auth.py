@@ -132,7 +132,7 @@ async def github_callback(
     
     # Step 7: Redirect to frontend with token
     # Frontend will be running on localhost:3000
-    frontend_url = f"http://localhost:3000?access_token={access_token}&user_id={user['id']}&username={user['github_username']}"
+    frontend_url = f"http://localhost:8080?access_token={access_token}&user_id={user['id']}&username={user['github_username']}"
     return RedirectResponse(url=frontend_url)
 
 

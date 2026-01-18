@@ -3,24 +3,142 @@ import { useNavigate } from "react-router-dom";
 import { Github, ArrowRight, Code2, Sparkles, History, Users, Zap, GitBranch, MessageSquare, Clock, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useEffect } from "react";
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+
+const startGithubLogin = async () => {
+  try {
+    const res = await fetch(`${API_BASE}/auth/github`);
+    if (!res.ok) throw new Error(`Auth init failed: ${res.status}`);
+    const data = await res.json();
+    if (!data?.auth_url) throw new Error("Missing auth_url from backend");
+    window.location.href = data.auth_url;
+  } catch (e) {
+    console.error(e);
+    alert(e.message ?? "Failed to start GitHub login");
+  }
+};
+
+
+function useOAuthCallback() {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    console.log("[OAuth] callback params:", Object.fromEntries(params.entries()));
+    const accessToken = params.get("access_token");
+
+    if (accessToken) {
+      localStorage.setItem("access_token", accessToken);
+
+      // clean the URL (remove token from address bar)
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+}
+
+function parseGithubRepo(url: string) {
+  // supports https://github.com/owner/repo or owner/repo
+  const cleaned = url.replace("https://github.com/", "").replace(/^\//, "").replace(/\/$/, "");
+  const [owner, repo] = cleaned.split("/");
+  if (!owner || !repo) return null;
+  return { owner, repo };
+}
+
 
 export default function LandingPage() {
   const navigate = useNavigate();
   const [repoUrl, setRepoUrl] = useState("");
   const [question, setQuestion] = useState("");
   const [isConnected, setIsConnected] = useState(false);
+  const [user, setUser] = useState<{ github_username: string; user_id: string } | null>(null);
 
-  const handleConnect = () => {
-    if (repoUrl.trim()) {
-      setIsConnected(true);
+
+  useOAuthCallback();
+
+    useEffect(() => {
+  setIsConnected(!!localStorage.getItem("access_token"));
+}, []);
+
+
+useEffect(() => {
+  const run = async () => {
+    const t = localStorage.getItem("access_token");
+    if (!t) return;
+
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${t}` },
+    });
+
+    if (!res.ok) {
+      localStorage.removeItem("access_token");
+      return;
     }
+
+    const data = await res.json();
+    setUser(data);
+    setIsConnected(true);
   };
 
-  const handleAsk = () => {
-    if (question.trim() && isConnected) {
-      navigate("/analyze");
-    }
-  };
+  run();
+}, []);
+
+  const handleConnect = async () => {
+  const t = localStorage.getItem("access_token");
+  if (!t) return;
+
+  const parsed = parseGithubRepo(repoUrl);
+  if (!parsed) return;
+
+  // optional: call backend to verify repo access
+  const res = await fetch(`${API_BASE}/api/repositories/details?owner=${parsed.owner}&repo=${parsed.repo}`, {
+    headers: { Authorization: `Bearer ${t}` },
+  });
+
+  if (!res.ok) {
+    // show error
+    return;
+  }
+
+  setIsConnected(true);
+};
+
+
+  const handleAsk = async () => {
+  const t = localStorage.getItem("access_token");
+  if (!t || !question.trim()) return;
+
+  const parsed = parseGithubRepo(repoUrl);
+  if (!parsed) return;
+
+  const res = await fetch(`${API_BASE}/api/repositories/analyze`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${t}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      owner: parsed.owner,
+      repo_name: parsed.repo,
+      full_name: `${parsed.owner}/${parsed.repo}`,
+      // optionally include html_url/default_branch/github_repo_id if you fetched details
+    }),
+  });
+
+  if (!res.ok) {
+    // show error from backend
+    return;
+  }
+
+  const data = await res.json();
+
+  // store question + repo id somewhere (state manager / query params)
+  sessionStorage.setItem("last_question", question);
+  sessionStorage.setItem("analysis_id", data.repository.id);
+
+  navigate("/analyze");
+};
+
 
   const exampleQuestions = [
     "Why was the authentication system refactored?",
@@ -74,7 +192,7 @@ export default function LandingPage() {
                 Connected
               </div>
             )}
-            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
+            <Button variant="ghost" size="sm" onClick={startGithubLogin}>
               <Github className="w-4 h-4 mr-2" />
               Sign in
             </Button>
