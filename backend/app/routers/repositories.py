@@ -409,14 +409,10 @@ async def fetch_commits(
                 additions = detailed_commit["total_additions"]
                 deletions = detailed_commit["total_deletions"]
                 
-                # Generate AI summary from code changes using Gemini
-                try:
-                    from app.services.gemini_service import generate_commit_summary
-                    ai_summary = generate_commit_summary(detailed_commit)
-                    logger.info(f"✅ Generated AI summary for commit {commit['sha'][:7]}")
-                except Exception as gemini_error:
-                    logger.warning(f"⚠️ AI summary generation failed for {commit['sha'][:7]}: {gemini_error}")
-                    # Continue without AI summary - not critical
+                # Skip AI summary generation during initial commit fetch
+                # AI summaries will be generated on-demand during RAG queries for better performance
+                ai_summary = None
+                logger.debug(f"⏭️  Skipped AI summary generation for {commit['sha'][:7]} (will generate on-demand)")
                 
             except Exception as e:
                 # If detailed fetch fails, use basic info

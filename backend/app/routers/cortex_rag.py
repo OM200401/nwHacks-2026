@@ -406,44 +406,44 @@ async def handle_semantic_query(repo_id: str, repository: dict, question: str, r
     if not similar_commits:
         return {
             "answer": "No relevant commits found. Make sure embeddings are generated first.",
-                "sources": [],
-                "question": request.question
-            }
+            "sources": [],
+            "question": request.question
+        }
+    
+    # STEP 3: Build context from similar commits
+    context_parts = []
+    sources = []
+    
+    for i, commit in enumerate(similar_commits):
+        context = f"Commit {i+1} (SHA: {commit['SHA'][:7]}):\n"
+        context += f"Message: {commit['MESSAGE']}\n"
         
-        # STEP 3: Build context from similar commits
-        context_parts = []
-        sources = []
+        if commit.get('AI_SUMMARY'):
+            context += f"AI Summary: {commit['AI_SUMMARY']}\n"
         
-        for i, commit in enumerate(similar_commits):
-            context = f"Commit {i+1} (SHA: {commit['SHA'][:7]}):\n"
-            context += f"Message: {commit['MESSAGE']}\n"
-            
-            if commit.get('AI_SUMMARY'):
-                context += f"AI Summary: {commit['AI_SUMMARY']}\n"
-            
-            if commit.get('FILES_CHANGED'):
-                try:
-                    files = json.loads(commit['FILES_CHANGED']) if isinstance(commit['FILES_CHANGED'], str) else commit['FILES_CHANGED']
-                    files_str = ', '.join(files[:5])
-                    context += f"Files: {files_str}\n"
-                except:
-                    pass
-            
-            context += f"Similarity: {commit['SIMILARITY']:.2f}\n"
-            context_parts.append(context)
-            
-            sources.append({
-                "sha": commit["SHA"],
-                "message": commit["MESSAGE"],
-                "ai_summary": commit.get("AI_SUMMARY"),
-                "html_url": commit.get("HTML_URL"),
-                "similarity": commit["SIMILARITY"]
-            })
+        if commit.get('FILES_CHANGED'):
+            try:
+                files = json.loads(commit['FILES_CHANGED']) if isinstance(commit['FILES_CHANGED'], str) else commit['FILES_CHANGED']
+                files_str = ', '.join(files[:5])
+                context += f"Files: {files_str}\n"
+            except:
+                pass
         
-        combined_context = "\n\n".join(context_parts)
+        context += f"Similarity: {commit['SIMILARITY']:.2f}\n"
+        context_parts.append(context)
         
-        # STEP 4: Generate answer using Snowflake Cortex LLM
-        rag_prompt = f"""You are analyzing commit history for: {repository['full_name']}
+        sources.append({
+            "sha": commit["SHA"],
+            "message": commit["MESSAGE"],
+            "ai_summary": commit.get("AI_SUMMARY"),
+            "html_url": commit.get("HTML_URL"),
+            "similarity": commit["SIMILARITY"]
+        })
+    
+    combined_context = "\n\n".join(context_parts)
+    
+    # STEP 4: Generate answer using Snowflake Cortex LLM
+    rag_prompt = f"""You are analyzing commit history for: {repository['full_name']}
 
 Relevant Commits (ordered by relevance):
 {combined_context}
