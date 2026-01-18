@@ -155,6 +155,12 @@ async def analyze_repository(
         # - Send commits to Gemini for analysis
         # - Store embeddings in Snowflake
         
+        if not repository:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create repository record"
+            )
+        
         return {
             "message": "Repository queued for analysis",
             "repository": {
@@ -177,4 +183,76 @@ async def analyze_repository(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error starting repository analysis: {str(e)}"
         )
+
+
+@router.get("/repositories/{repo_id}/status")
+async def get_repository_status(
+    repo_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get repository analysis status and progress
+    
+    Returns current analysis status, progress percentage,
+    and detailed information about the repository.
+    
+    Requires: JWT authentication
+    
+    Path Parameters:
+        repo_id: Repository ID (UUID)
+    
+    Returns:
+        Repository status with analysis progress
+    """
+    
+    try:
+        # Get repository from database
+        repository = await get_repository_by_id(repo_id)
+        
+        if not repository:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Repository not found"
+            )
+        
+        # Verify repository belongs to authenticated user
+        if repository["user_id"] != current_user["user_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this repository"
+            )
+        
+        # Calculate progress percentage
+        progress = 0.0
+        if repository["total_commits"] > 0:
+            progress = (repository["analyzed_commits"] / repository["total_commits"]) * 100
+        
+        # Determine if analysis is complete
+        is_complete = repository["analysis_status"] == "complete"
+        
+        # Format response
+        return {
+            "id": repository["id"],
+            "full_name": repository["full_name"],
+            "owner": repository["owner"],
+            "repo_name": repository["repo_name"],
+            "html_url": repository["html_url"],
+            "analysis_status": repository["analysis_status"],
+            "total_commits": repository["total_commits"],
+            "analyzed_commits": repository["analyzed_commits"],
+            "progress_percentage": round(progress, 2),
+            "is_complete": is_complete,
+            "created_at": repository["created_at"].isoformat(),
+            "last_analyzed": repository["last_analyzed"].isoformat() if repository["last_analyzed"] else None,
+            "updated_at": repository["updated_at"].isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching repository status: {str(e)}"
+        )
+
 
