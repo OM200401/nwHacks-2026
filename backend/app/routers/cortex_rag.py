@@ -407,58 +407,63 @@ async def handle_semantic_query(repo_id: str, repository: dict, question: str, r
         return {
             "answer": "No relevant commits found. Make sure embeddings are generated first.",
                 "sources": [],
-            "sources": [],
-            "question": request.question,
-            "query_type": "semantic"
-        }
-    
-    # STEP 3: Build context from similar commits
-    context_parts = []
-    sources = []
-    
-    for i, commit in enumerate(similar_commits):
-        context = f"Commit {i+1} (SHA: {commit['SHA'][:7]}):\n"
+                "question": request.question
+            }
         
-        if commit.get('AI_SUMMARY'):
-            context += f"Analysis: {commit['AI_SUMMARY']}\n"
-            context += f"Original Message: {commit['MESSAGE']}\n"
-        else:
+        # STEP 3: Build context from similar commits
+        context_parts = []
+        sources = []
+        
+        for i, commit in enumerate(similar_commits):
+            context = f"Commit {i+1} (SHA: {commit['SHA'][:7]}):\n"
             context += f"Message: {commit['MESSAGE']}\n"
+            
+            if commit.get('AI_SUMMARY'):
+                context += f"AI Summary: {commit['AI_SUMMARY']}\n"
+            
+            if commit.get('FILES_CHANGED'):
+                try:
+                    files = json.loads(commit['FILES_CHANGED']) if isinstance(commit['FILES_CHANGED'], str) else commit['FILES_CHANGED']
+                    files_str = ', '.join(files[:5])
+                    context += f"Files: {files_str}\n"
+                except:
+                    pass
+            
+            context += f"Similarity: {commit['SIMILARITY']:.2f}\n"
+            context_parts.append(context)
+            
+            sources.append({
+                "sha": commit["SHA"],
+                "message": commit["MESSAGE"],
+                "ai_summary": commit.get("AI_SUMMARY"),
+                "html_url": commit.get("HTML_URL"),
+                "similarity": commit["SIMILARITY"]
+            })
         
-        if commit.get('FILES_CHANGED'):
-            try:
-                files = json.loads(commit['FILES_CHANGED']) if isinstance(commit['FILES_CHANGED'], str) else commit['FILES_CHANGED']
-                files_str = ', '.join(files[:5])
-                context += f"Files: {files_str}\n"
-            except:
-                pass
+        combined_context = "\n\n".join(context_parts)
         
-        context += f"Similarity: {commit['SIMILARITY']:.2f}\n"
-        context_parts.append(context)
-        
-        sources.append({
-            "sha": commit["SHA"],
-            "message": commit["MESSAGE"],
-            "ai_summary": commit.get("AI_SUMMARY"),
-            "html_url": commit.get("HTML_URL"),
-            "similarity": commit["SIMILARITY"]
-        })
-    
-    combined_context = "\n\n".join(context_parts)
-    
-    # STEP 4: Generate answer using Snowflake Cortex LLM
-    rag_prompt = f"""You are analyzing commit history for: {repository['full_name']}
+        # STEP 4: Generate answer using Snowflake Cortex LLM
+        rag_prompt = f"""You are analyzing commit history for: {repository['full_name']}
 
-Relevant Commits:
+Relevant Commits (ordered by relevance):
 {combined_context}
 
 User Question: {question}
 
-Instructions:
-- Answer based ONLY on the commits above
-- Cite specific commits by SHA
-- Be concise and technical
-- If commits don't fully answer, say so
+Instructions for your response:
+1. **Provide comprehensive technical analysis** - Don't just summarize, explain WHY changes were made
+2. **Include code snippets** when relevant from commit messages or file names
+3. **Cite specific commits** using SHA references (e.g., "In commit a7c3d2f...")
+4. **Explain architectural decisions** - What problem was being solved? What approach was taken?
+5. **Show evolution** - If multiple commits relate, explain how the feature/fix evolved
+6. **Be specific about files** - Mention exact file paths and what changed in them
+7. **Use structured formatting**:
+   - Use bullet points for lists
+   - Use **bold** for key concepts
+   - Use `code` for technical terms
+8. **Acknowledge limitations** - If commits don't fully answer, explain what's missing
+
+Provide a detailed, professional-grade response that would help a developer understand the codebase evolution.
 
 Answer:"""
     
