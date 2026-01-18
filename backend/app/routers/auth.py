@@ -130,17 +130,10 @@ async def github_callback(
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     
-    # Step 7: Return JWT to frontend
-    # In production, you might redirect to frontend with token in URL or cookie
-    return JSONResponse({
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user["id"],
-            "github_username": user["github_username"],
-            "email": user.get("email")
-        }
-    })
+    # Step 7: Redirect to frontend with token
+    # Frontend will be running on localhost:3000
+    frontend_url = f"http://localhost:3000?access_token={access_token}&user_id={user['id']}&username={user['github_username']}"
+    return RedirectResponse(url=frontend_url)
 
 
 @router.post("/logout")

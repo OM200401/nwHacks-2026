@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.core.config import settings
-from app.routers import auth
+from app.routers import auth, repositories
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -32,6 +32,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+app.include_router(repositories.router, prefix="/api", tags=["Repositories"])
 
 
 @app.get("/")
