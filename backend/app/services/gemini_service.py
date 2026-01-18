@@ -123,44 +123,68 @@ def generate_commit_summary(commit_details: Dict) -> str:
     
     # Build context from code changes
     code_context = []
-    for file in files[:5]:  # Limit to first 5 files to avoid token limits
+    total_patch_chars = 0
+    max_total_chars = 4000  # Total character budget for all patches
+    
+    for file in files[:10]:  # Increased from 5 to 10 files
         filename = file.get("filename", "unknown")
         status = file.get("status", "modified")
         file_additions = file.get("additions", 0)
         file_deletions = file.get("deletions", 0)
-        patch = file.get("patch", "")[:500]  # Limit patch to 500 chars per file
+        patch = file.get("patch", "")
+        
+        # Smart patch trimming - keep more for important changes
+        if patch:
+            remaining_budget = max_total_chars - total_patch_chars
+            patch_limit = min(len(patch), remaining_budget, 800)  # Up to 800 chars per file
+            
+            # If patch is longer, try to extract key parts
+            if len(patch) > patch_limit:
+                # Get the first part (usually function signatures, imports)
+                patch = patch[:patch_limit] + "\n... (truncated)"
+            
+            total_patch_chars += len(patch)
         
         code_context.append(f"""
 File: {filename} ({status})
 +{file_additions} -{file_deletions}
-{patch}
+{patch if patch else '(Binary or no diff available)'}
 """)
+        
+        # Stop if we've used up our character budget
+        if total_patch_chars >= max_total_chars:
+            if len(files) > len(code_context):
+                code_context.append(f"... and {len(files) - len(code_context)} more files")
+            break
     
     code_changes = "\n".join(code_context) if code_context else "No code changes available"
     
     # Create prompt for Gemini
-    prompt = f"""You are a senior software engineer analyzing a git commit.
+    prompt = f"""You are a senior software engineer analyzing a git commit for semantic code search.
 
-Generate a concise 50-word technical summary that explains WHAT changed and WHY based on the code.
+Generate a concise 50-word technical summary based on the ACTUAL CODE CHANGES (diffs/patches shown below).
 
 Commit Message: {message}
 
 Files Changed: {len(files)}
 Lines: +{additions} -{deletions}
 
-Code Changes:
+Code Diff/Patches:
 {code_changes}
 
 Requirements:
 - EXACTLY 50 words (strict limit)
-- Focus on the technical changes in the code
-- Explain what was implemented/fixed/refactored
-- Include key function/file names if relevant
-- Use technical language (not casual)
+- Base your analysis on the CODE DIFFS above, not just the commit message
+- Explain WHAT was implemented/fixed/refactored in technical detail
+- Include key function names, file paths, or architectural changes
+- Focus on semantic meaning for code search (what would developers search for?)
+- Use technical language (APIs, functions, classes, patterns)
 - NO markdown formatting
-- Be specific about the changes
+- Examples of good summaries:
+  * "Implemented JWT authentication middleware in auth.py using jsonwebtoken library. Added token verification decorator for protected routes. Refactored login endpoint to return access tokens. Updated user model with password hashing using bcrypt."
+  * "Fixed memory leak in WebSocket connection handler by properly closing sockets in cleanup. Added connection pool limit of 100. Implemented reconnection logic with exponential backoff in client.js for improved reliability."
 
-Return ONLY the 50-word summary, nothing else."""
+Return ONLY the 50-word summary analyzing the code changes shown above."""
 
     try:
         summary = call_gemini(prompt)

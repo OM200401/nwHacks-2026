@@ -125,7 +125,34 @@ async def analyze_repository(
         # Decrypt GitHub token
         github_token = await retrieve_github_token(user["encrypted_token_ref"])
         
-        # Create repository record in database
+        # Check if repository already exists in database
+        from app.database.snowflake_crud import get_repository_by_github_id
+        existing_repo = await get_repository_by_github_id(
+            user_id=current_user["user_id"],
+            github_repo_id=request.github_repo_id
+        )
+        
+        if existing_repo:
+            # Repository already exists - return existing record
+            logger.info(f"Repository {request.full_name} already exists in database")
+            
+            # Get current commit count to check if it's already analyzed
+            stored_commits = await get_commits_count(existing_repo["id"])
+            
+            return {
+                "message": "Repository already exists" if stored_commits > 0 else "Repository found, no commits yet",
+                "already_analyzed": stored_commits > 0,
+                "repository": {
+                    "id": existing_repo["id"],
+                    "full_name": existing_repo["full_name"],
+                    "analysis_status": existing_repo["analysis_status"],
+                    "total_commits": existing_repo["total_commits"],
+                    "analyzed_commits": existing_repo["analyzed_commits"],
+                    "created_at": existing_repo["created_at"].isoformat()
+                }
+            }
+        
+        # Create repository record in database (new repository)
         repository = await create_repository(
             user_id=current_user["user_id"],
             github_repo_id=request.github_repo_id,
@@ -338,7 +365,30 @@ async def fetch_commits(
         
         # Store commits in database
         stored_commits = []
+        skipped_commits = 0
+        
         for commit in commits:
+            # Check if commit already exists to avoid re-analysis
+            from app.database.snowflake_crud import get_commit_by_sha
+            existing_commit = await get_commit_by_sha(repo_id, commit["sha"])
+            
+            if existing_commit:
+                logger.info(f"⏭️  Skipping already analyzed commit {commit['sha'][:7]}")
+                skipped_commits += 1
+                stored_commits.append({
+                    "id": existing_commit["id"],
+                    "sha": existing_commit["sha"][:7],
+                    "message": existing_commit["message"][:80],
+                    "author": existing_commit["author_name"],
+                    "date": existing_commit["commit_date"],
+                    "files_changed": len(existing_commit.get("files_changed", [])) if existing_commit.get("files_changed") else 0,
+                    "additions": existing_commit.get("additions", 0),
+                    "deletions": existing_commit.get("deletions", 0),
+                    "has_ai_summary": existing_commit.get("ai_summary") is not None,
+                    "skipped": True
+                })
+                continue
+            
             # Fetch detailed commit information (includes files, additions, deletions)
             detailed_commit = None
             files_changed = []
@@ -359,13 +409,14 @@ async def fetch_commits(
                 additions = detailed_commit["total_additions"]
                 deletions = detailed_commit["total_deletions"]
                 
-                # Generate AI summary from code changes using Gemini
+                # Generate AI summary using Snowflake Cortex (fast, integrated)
                 try:
-                    from app.services.gemini_service import generate_commit_summary
-                    ai_summary = generate_commit_summary(detailed_commit)
-                    logger.info(f"✅ Generated AI summary for commit {commit['sha'][:7]}")
-                except Exception as gemini_error:
-                    logger.warning(f"⚠️ AI summary generation failed for {commit['sha'][:7]}: {gemini_error}")
+                    from app.services.snowflake_service import generate_commit_summary_cortex
+                    ai_summary = generate_commit_summary_cortex(detailed_commit)
+                    logger.info(f"✅ Generated Cortex summary for commit {commit['sha'][:7]}")
+                except Exception as cortex_error:
+                    logger.warning(f"⚠️ Cortex summary generation failed for {commit['sha'][:7]}: {cortex_error}")
+                    ai_summary = None
                     # Continue without AI summary - not critical
                 
             except Exception as e:
@@ -407,7 +458,8 @@ async def fetch_commits(
                     "files_changed": len(files_changed),
                     "additions": additions,
                     "deletions": deletions,
-                    "has_ai_summary": ai_summary is not None
+                    "has_ai_summary": ai_summary is not None,
+                    "skipped": False
                 })
         
         # Get total stored commits count
@@ -424,6 +476,8 @@ async def fetch_commits(
             "page": page,
             "per_page": per_page,
             "fetched": len(commits),
+            "new_commits": len(commits) - skipped_commits,
+            "skipped_commits": skipped_commits,
             "total_stored": total_stored,
             "has_more": len(commits) == per_page,  # If we got full page, likely more exist
             "commits": stored_commits,

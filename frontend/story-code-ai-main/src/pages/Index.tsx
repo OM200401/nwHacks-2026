@@ -495,14 +495,6 @@ const Index = () => {
             )}
           >
             <div className="relative">
-              {/* Timeline line - gradient based on commit relevance - centered through circles */}
-              <div
-                className="absolute top-6 bottom-6 w-0.5 bg-gradient-to-b from-green-500 via-yellow-500 to-gray-400"
-                style={{
-                  left: selectedCommitNode ? 'calc(1rem + 1.5rem)' : 'calc(1.5rem + 2.5rem)'
-                }}
-              />
-
               {/* Graph nodes */}
               <div
                 className={cn(
