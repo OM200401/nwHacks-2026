@@ -17,43 +17,6 @@ import { ExplanationPanel } from "@/components/ExplanationPanel";
 import { useNavigate } from "react-router-dom";
 import { fetchCommitDetails } from "@/lib/api";
 
-// Mock commit data
-const currentCommit = {
-  hash: "a7c3d2f",
-  fullHash: "a7c3d2f8e91b4c5d6e7f8a9b0c1d2e3f4a5b6c7d",
-  message: "Refactor authentication flow",
-  description:
-    "Added logging for admin token bypass and improved JWT validation",
-  author: "Sarah Chen",
-  authorEmail: "sarah.chen@company.com",
-  date: "Jan 16, 2026",
-  timeAgo: "2 days ago",
-  branch: "main",
-  files: [
-    {
-      name: "OldSessionHandler.js",
-      additions: 12,
-      deletions: 5,
-      path: "src/legacy",
-      active: true,
-    },
-    {
-      name: "AuthProvider.tsx",
-      additions: 45,
-      deletions: 23,
-      path: "src/auth",
-      active: false,
-    },
-    {
-      name: "useAuth.ts",
-      additions: 8,
-      deletions: 2,
-      path: "src/hooks",
-      active: false,
-    },
-  ],
-};
-
 // High-level commit nodes for graph view
 type CommitNode = {
   id: string;
@@ -66,54 +29,6 @@ type CommitNode = {
   fileCount: number;
   linkedSections: string[]; // IDs of related code sections
 };
-
-const commitNodes: CommitNode[] = [
-  {
-    id: "c1",
-    hash: "a7c3d2f",
-    summary: "Refactor authentication flow",
-    description:
-      "Added logging for admin token bypass and improved JWT validation",
-    date: "Jan 16, 2026",
-    author: "Sarah Chen",
-    relevance: "high",
-    fileCount: 3,
-    linkedSections: ["1", "2"],
-  },
-  {
-    id: "c2",
-    hash: "b4e5f6a",
-    summary: "Add token refresh logging",
-    description: "Enhanced debugging capabilities for auth token lifecycle",
-    date: "Jan 14, 2026",
-    author: "Mike Torres",
-    relevance: "medium",
-    fileCount: 1,
-    linkedSections: ["3"],
-  },
-  {
-    id: "c3",
-    hash: "c8d9e0b",
-    summary: "Initial session handler setup",
-    description: "Legacy session management foundation",
-    date: "Jan 10, 2026",
-    author: "Sarah Chen",
-    relevance: "low",
-    fileCount: 2,
-    linkedSections: [],
-  },
-  {
-    id: "c4",
-    hash: "d1f2a3c",
-    summary: "Auth provider migration",
-    description: "Moved from class-based to hook-based auth context",
-    date: "Jan 8, 2026",
-    author: "Alex Kim",
-    relevance: "medium",
-    fileCount: 2,
-    linkedSections: ["2"],
-  },
-];
 
 // Relevant code sections across multiple files
 type CodeSection = {
@@ -315,15 +230,28 @@ const Index = () => {
   const [questionInput, setQuestionInput] = useState("");
 
   const repoId = sessionStorage.getItem("analysis_id") || "";
-  console.log("Using repo ID:", repoId);
+  console.log("📊 Using repo ID:", repoId);
 
   // Load initial question from sessionStorage if available
   useEffect(() => {
     const savedQuestion = sessionStorage.getItem("last_question");
     if (savedQuestion) {
+      console.log("📝 Loaded question from session:", savedQuestion);
       setUserQuestion(savedQuestion);
     }
   }, []);
+
+  // Auto-load data when page mounts with saved question
+  useEffect(() => {
+    const runAutoQuery = async () => {
+      const savedQuestion = sessionStorage.getItem("last_question");
+      if (savedQuestion && repoId && commitNodesState.length === 0) {
+        console.log("🚀 Auto-loading RAG query with question:", savedQuestion);
+        await askRepoQuestion(savedQuestion);
+      }
+    };
+    runAutoQuery();
+  }, [repoId]);
 
   async function askRepoQuestion(question: string) {
     try {
@@ -373,13 +301,28 @@ const Index = () => {
           if (source.similarity >= 0.7) relevance = "high";
           else if (source.similarity >= 0.5) relevance = "medium";
 
+          // Format the date nicely
+          let formattedDate = "Unknown";
+          if (source.commit_date) {
+            try {
+              const date = new Date(source.commit_date);
+              formattedDate = date.toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              });
+            } catch (e) {
+              formattedDate = source.commit_date;
+            }
+          }
+
           return {
             id: source.sha.substring(0, 7),
             hash: source.sha.substring(0, 7),
             summary: source.ai_summary || source.message,
             description: source.message,
-            date: new Date().toISOString(),
-            author: "Unknown",
+            date: formattedDate,
+            author: source.author_name || "Unknown",
             relevance,
             fileCount: 0,
             linkedSections: [],
@@ -470,11 +413,11 @@ const Index = () => {
               <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20">
                 <GitCommit className="w-4 h-4 text-primary" />
                 <code className="text-sm font-mono font-bold text-primary">
-                  {activeCommit?.hash || currentCommit.hash}
+                  {activeCommit?.hash || "---"}
                 </code>
               </div>
               <span className="text-xs text-muted-foreground font-mono">
-                on {currentCommit.branch}
+                on main
               </span>
             </div>
             <Button
@@ -489,33 +432,35 @@ const Index = () => {
 
           {/* Commit message */}
           <h1 className="text-lg font-semibold text-foreground mb-1">
-            {activeCommit?.summary || currentCommit.message}
+            {activeCommit?.summary || "Select a commit to view details"}
           </h1>
           <p className="text-sm text-muted-foreground mb-3">
-            {activeCommit?.description || currentCommit.description}
+            {activeCommit?.description || "No description available"}
           </p>
 
           {/* Meta row */}
           <div className="flex items-center gap-4 text-xs">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-primary font-medium text-[10px]">
-                {(activeCommit?.author || currentCommit.author)
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")}
+                {activeCommit?.author
+                  ? activeCommit.author
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
+                  : "?"}
               </div>
               <span className="text-foreground font-medium">
-                {activeCommit?.author || currentCommit.author}
+                {activeCommit?.author || "Unknown"}
               </span>
             </div>
             <span className="flex items-center gap-1 text-muted-foreground">
               <Clock className="w-3 h-3" />
-              {activeCommit?.date || currentCommit.date}
+              {activeCommit?.date || "---"}
             </span>
             <div className="flex items-center gap-2 ml-auto">
               <span className="flex items-center gap-1 text-muted-foreground">
                 <FileCode className="w-3 h-3" />
-                {activeCommit?.fileCount || currentCommit.files.length} files
+                {activeCommit?.fileCount || 0} files
                 changed
               </span>
             </div>
@@ -550,12 +495,12 @@ const Index = () => {
             )}
           >
             <div className="relative">
-              {/* Timeline line */}
+              {/* Timeline line - gradient based on commit relevance - centered through circles */}
               <div
-                className={cn(
-                  "absolute top-6 bottom-6 w-0.5 bg-border",
-                  selectedCommitNode ? "left-6" : "left-8"
-                )}
+                className="absolute top-6 bottom-6 w-0.5 bg-gradient-to-b from-green-500 via-yellow-500 to-gray-400"
+                style={{
+                  left: selectedCommitNode ? 'calc(1rem + 1.5rem)' : 'calc(1.5rem + 2.5rem)'
+                }}
               />
 
               {/* Graph nodes */}
@@ -582,20 +527,20 @@ const Index = () => {
                         "relative z-10 rounded-full border-4 flex items-center justify-center flex-shrink-0 transition-all",
                         selectedCommitNode ? "w-12 h-12" : "w-16 h-16",
                         node.relevance === "high" &&
-                          "border-green-500 bg-green-500/10",
+                          "border-green-500 bg-green-500/20 shadow-green-500/50 shadow-lg",
                         node.relevance === "medium" &&
-                          "border-yellow-500 bg-yellow-500/10",
+                          "border-amber-500 bg-amber-500/20 shadow-amber-500/50 shadow-md",
                         node.relevance === "low" &&
-                          "border-muted-foreground/50 bg-muted/50",
-                        selectedCommitNode === node.id && "scale-110 shadow-lg"
+                          "border-slate-400 bg-slate-400/10",
+                        selectedCommitNode === node.id && "scale-110 ring-2 ring-primary ring-offset-2"
                       )}
                     >
                       <GitCommit
                         className={cn(
                           selectedCommitNode ? "w-5 h-5" : "w-7 h-7",
-                          node.relevance === "high" && "text-green-500",
-                          node.relevance === "medium" && "text-yellow-500",
-                          node.relevance === "low" && "text-muted-foreground"
+                          node.relevance === "high" && "text-green-600 font-bold",
+                          node.relevance === "medium" && "text-amber-600 font-semibold",
+                          node.relevance === "low" && "text-slate-500"
                         )}
                       />
                     </div>
@@ -613,17 +558,17 @@ const Index = () => {
                         </code>
                         <span
                           className={cn(
-                            "px-2 py-0.5 rounded font-medium",
+                            "px-2 py-0.5 rounded-full font-semibold tracking-wide",
                             selectedCommitNode ? "text-[9px]" : "text-xs",
                             node.relevance === "high" &&
-                              "bg-green-500/20 text-green-600",
+                              "bg-green-500/30 text-green-700 border border-green-500/50",
                             node.relevance === "medium" &&
-                              "bg-yellow-500/20 text-yellow-600",
+                              "bg-amber-500/30 text-amber-700 border border-amber-500/50",
                             node.relevance === "low" &&
-                              "bg-muted text-muted-foreground"
+                              "bg-slate-300/30 text-slate-600 border border-slate-400/50"
                           )}
                         >
-                          {node.relevance}
+                          {node.relevance === "high" ? "🎯 HIGH" : node.relevance === "medium" ? "⚡ MEDIUM" : "📍 LOW"}
                         </span>
                       </div>
                       <p

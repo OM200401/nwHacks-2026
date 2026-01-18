@@ -206,7 +206,7 @@
 //   );
 // }
 import { useState, useEffect } from "react";
-import { Sparkles } from "lucide-react";
+import { Sparkles, ArrowRight } from "lucide-react";
 
 type Mode = "explain" | "review" | "fix" | "summarize";
 
@@ -216,29 +216,77 @@ interface ExplanationPanelProps {
   loading?: boolean;
 }
 
+// Parse the RAG response to extract answer and key insights
+function parseAnswer(answer: string) {
+  const lines = answer.split("\n");
+  const sections = {
+    mainAnswer: [] as string[],
+    keyInsight: null as string | null,
+  };
+
+  let inKeyInsight = false;
+
+  for (const line of lines) {
+    if (line.includes("Key Insight") || line.includes("**Key Insight**")) {
+      inKeyInsight = true;
+      continue;
+    }
+
+    if (inKeyInsight) {
+      if (line.trim() === "") continue;
+      sections.keyInsight = line.replace(/^\*\*Key Insight\*\*:\s*/, "").trim();
+      inKeyInsight = false;
+    } else {
+      sections.mainAnswer.push(line);
+    }
+  }
+
+  return sections;
+}
+
+// Format text with markdown-like styling
+function formatText(text: string) {
+  // Match **bold text** and `code`
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={i} className="font-semibold text-foreground">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code key={i} className="bg-primary/20 text-primary px-1.5 py-0.5 rounded text-xs font-mono">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
+}
+
 export function ExplanationPanel({ mode, answer, loading }: ExplanationPanelProps) {
   const [isTyping, setIsTyping] = useState(true);
 
   useEffect(() => {
     setIsTyping(true);
-    const timer = setTimeout(() => setIsTyping(false), 1200);
+    const timer = setTimeout(() => setIsTyping(false), 800);
     return () => clearTimeout(timer);
   }, [mode, answer]);
+
+  const { mainAnswer, keyInsight } = parseAnswer(answer || "");
 
   return (
     <div className="h-full flex flex-col bg-card overflow-hidden">
       <div className="flex-1 overflow-auto scrollbar-thin">
-
-        {/* ───────────────────────────── */}
         {/* LOADING STATE */}
-        {/* ───────────────────────────── */}
         {(loading || isTyping) && (
           <div className="p-4 space-y-3">
             <div className="flex items-center gap-2 text-xs text-primary mb-4">
               <Sparkles className="w-3 h-3 animate-pulse" />
               <span>Searching through code history...</span>
             </div>
-
             <div className="h-4 bg-muted/50 rounded animate-pulse w-3/4" />
             <div className="h-4 bg-muted/50 rounded animate-pulse w-full" />
             <div className="h-4 bg-muted/50 rounded animate-pulse w-5/6" />
@@ -246,47 +294,62 @@ export function ExplanationPanel({ mode, answer, loading }: ExplanationPanelProp
           </div>
         )}
 
-        {/* ───────────────────────────── */}
         {/* REAL AI ANSWER */}
-        {/* ───────────────────────────── */}
         {!loading && !isTyping && answer && (
           <div className="p-4 animate-fade-in space-y-4">
+            {/* Main answer text */}
+            <div className="space-y-3">
+              {mainAnswer.map((line, i) => {
+                const trimmed = line.trim();
 
-            <div className="prose prose-invert max-w-none">
-              {answer.split("\n").map((line, i) => {
-                const isBullet =
-                  line.trim().startsWith("-") ||
-                  line.trim().startsWith("•");
-
-                if (isBullet) {
+                // Bullet points with arrows
+                if (trimmed.startsWith("-") || trimmed.startsWith("•")) {
+                  const bulletText = trimmed.replace(/^[-•]\s*/, "");
                   return (
-                    <li key={i} className="text-muted-foreground ml-4">
-                      {line.replace(/^[-•]\s*/, "")}
-                    </li>
+                    <div key={i} className="flex items-start gap-2.5">
+                      <ArrowRight className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+                      <p className="text-muted-foreground text-sm leading-relaxed">
+                        {formatText(bulletText)}
+                      </p>
+                    </div>
                   );
                 }
 
-                return (
-                  <p key={i} className="text-foreground leading-relaxed">
-                    {line}
-                  </p>
-                );
+                // Regular paragraphs
+                if (trimmed && !trimmed.startsWith("#")) {
+                  return (
+                    <p key={i} className="text-foreground text-sm leading-relaxed">
+                      {formatText(trimmed)}
+                    </p>
+                  );
+                }
+
+                return null;
               })}
             </div>
 
+            {/* Key Insight Box */}
+            {keyInsight && (
+              <div className="p-3 rounded-lg border border-primary/30 bg-primary/5 space-y-2 mt-6">
+                <div className="flex items-center gap-2 text-xs text-primary font-semibold">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Key Insight
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {formatText(keyInsight)}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
-        {/* ───────────────────────────── */}
         {/* EMPTY STATE */}
-        {/* ───────────────────────────── */}
         {!loading && !isTyping && !answer && (
-          <div className="p-4 text-muted-foreground">
-            Ask a question about this repository to see AI explanations based on
-            commit history and summaries.
+          <div className="p-4 text-xs text-muted-foreground">
+            Ask a question about this repository to see AI explanations based on commit history
+            and code summaries.
           </div>
         )}
-
       </div>
     </div>
   );

@@ -59,6 +59,8 @@ export default function LandingPage() {
   const [selectedRepo, setSelectedRepo] = useState<any>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState("");
+  const [showQuestionInput, setShowQuestionInput] = useState(false);
+  const [userQuestion, setUserQuestion] = useState("");
 
 
   useOAuthCallback();
@@ -129,6 +131,7 @@ useEffect(() => {
     setSelectedRepo(repo);
     setRepoUrl(repo.full_name);
     setShowRepoSelector(false);
+    setShowQuestionInput(true);
     setIsConnected(true);
   };
 
@@ -174,12 +177,11 @@ useEffect(() => {
     }
 
     const data = await res.json();
-
-    // Store a default question and repo id
-    sessionStorage.setItem("last_question", "Tell me about the recent changes in this repository");
-    sessionStorage.setItem("analysis_id", data.repository.id);
-
     const repoId = data.repository.id;
+
+    // Store repo id and user question
+    sessionStorage.setItem("last_question", userQuestion);
+    sessionStorage.setItem("analysis_id", repoId);
 
     // Step 2: Fetch commits from GitHub
     setAnalysisStep("Fetching commits from GitHub...");
@@ -373,24 +375,63 @@ useEffect(() => {
                       </Button>
                     </div>
                     
-                    <Button 
-                      onClick={handleAsk} 
-                      disabled={analyzing}
-                      className="w-full h-12 gap-2 text-base"
-                    >
-                      {analyzing ? (
-                        <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
-                          {analysisStep}
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          Analyze Repository
-                          <ArrowRight className="w-4 h-4" />
-                        </>
-                      )}
-                    </Button>
+                    {showQuestionInput ? (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={userQuestion}
+                          onChange={(e) => setUserQuestion(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && userQuestion.trim()) {
+                              handleAsk();
+                            }
+                          }}
+                          placeholder="Ask a question about your codebase..."
+                          className="w-full px-3 py-2.5 rounded-lg bg-background border border-input text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                          autoFocus
+                        />
+                        <div className="flex gap-2">
+                          <Button 
+                            onClick={handleAsk} 
+                            disabled={analyzing || !userQuestion.trim()}
+                            className="w-full h-10 gap-2"
+                          >
+                            {analyzing ? (
+                              <>
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-current"></div>
+                                {analysisStep}
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3 h-3" />
+                                Analyze
+                                <ArrowRight className="w-3 h-3" />
+                              </>
+                            )}
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            onClick={() => {
+                              setShowQuestionInput(false);
+                              setUserQuestion("");
+                            }}
+                            disabled={analyzing}
+                            className="h-10"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button 
+                        onClick={() => setShowQuestionInput(true)}
+                        className="w-full h-12 gap-2 text-base"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        Analyze Repository
+                        <ArrowRight className="w-4 h-4" />
+                      </Button>
+                    )}
                   </>
                 ) : (
                   <Button 

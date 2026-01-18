@@ -284,46 +284,64 @@ async def query_with_cortex(
         sources = []
         
         for i, commit in enumerate(similar_commits):
-            context = f"Commit {i+1} (SHA: {commit['SHA'][:7]}):\n"
-            context += f"Message: {commit['MESSAGE']}\n"
+            # Normalize keys to uppercase since Snowflake returns uppercase
+            commit_normalized = {k.upper(): v for k, v in commit.items()}
             
-            if commit.get('AI_SUMMARY'):
-                context += f"AI Summary: {commit['AI_SUMMARY']}\n"
+            # Debug logging to see what keys are available
+            logger.info(f"Commit {i} normalized keys: {list(commit_normalized.keys())}")
+            logger.info(f"Commit {i} author: {commit_normalized.get('AUTHOR_NAME')}, date: {commit_normalized.get('COMMIT_DATE')}")
             
-            if commit.get('FILES_CHANGED'):
+            context = f"Commit {i+1} (SHA: {commit_normalized['SHA'][:7]}):\n"
+            context += f"Message: {commit_normalized['MESSAGE']}\n"
+            
+            if commit_normalized.get('AI_SUMMARY'):
+                context += f"AI Summary: {commit_normalized['AI_SUMMARY']}\n"
+            
+            if commit_normalized.get('FILES_CHANGED'):
                 try:
-                    files = json.loads(commit['FILES_CHANGED']) if isinstance(commit['FILES_CHANGED'], str) else commit['FILES_CHANGED']
+                    files = json.loads(commit_normalized['FILES_CHANGED']) if isinstance(commit_normalized['FILES_CHANGED'], str) else commit_normalized['FILES_CHANGED']
                     files_str = ', '.join(files[:5])
                     context += f"Files: {files_str}\n"
                 except:
                     pass
             
-            context += f"Similarity: {commit['SIMILARITY']:.2f}\n"
+            context += f"Similarity: {commit_normalized['SIMILARITY']:.2f}\n"
             context_parts.append(context)
             
             sources.append({
-                "sha": commit["SHA"],
-                "message": commit["MESSAGE"],
-                "ai_summary": commit.get("AI_SUMMARY"),
-                "html_url": commit.get("HTML_URL"),
-                "similarity": commit["SIMILARITY"]
+                "sha": commit_normalized["SHA"],
+                "message": commit_normalized["MESSAGE"],
+                "ai_summary": commit_normalized.get("AI_SUMMARY"),
+                "html_url": commit_normalized.get("HTML_URL"),
+                "author_name": commit_normalized.get("AUTHOR_NAME") or "Unknown",
+                "commit_date": commit_normalized.get("COMMIT_DATE"),
+                "similarity": commit_normalized["SIMILARITY"]
             })
         
         combined_context = "\n\n".join(context_parts)
         
         # STEP 4: Generate answer using Snowflake Cortex LLM
-        rag_prompt = f"""You are analyzing commit history for: {repository['full_name']}
+        rag_prompt = f"""You are an expert code archaeologist analyzing the commit history for: {repository['full_name']}
 
-Relevant Commits:
+Relevant Commits (ordered by relevance):
 {combined_context}
 
 User Question: {request.question}
 
-Instructions:
-- Answer based ONLY on the commits above
-- Cite specific commits by SHA
-- Be concise and technical
-- If commits don't fully answer, say so
+Instructions for your response:
+1. **Provide comprehensive technical analysis** - Don't just summarize, explain WHY changes were made
+2. **Include code snippets** when relevant from commit messages or file names
+3. **Cite specific commits** using SHA references (e.g., "In commit a7c3d2f...")
+4. **Explain architectural decisions** - What problem was being solved? What approach was taken?
+5. **Show evolution** - If multiple commits relate, explain how the feature/fix evolved
+6. **Be specific about files** - Mention exact file paths and what changed in them
+7. **Use structured formatting**:
+   - Use bullet points for lists
+   - Use **bold** for key concepts
+   - Use `code` for technical terms
+8. **Acknowledge limitations** - If commits don't fully answer, explain what's missing
+
+Provide a detailed, professional-grade response that would help a developer understand the codebase evolution.
 
 Answer:"""
         
