@@ -316,13 +316,22 @@ const Index = () => {
     try {
       setLoading(true);
 
+      const token = localStorage.getItem("access_token");
+      if (!token) {
+        console.error("❌ No access token found in localStorage");
+        setAnswer("Please log in first - no authentication token found.");
+        return;
+      }
+
+      console.log("🔑 Using token:", token.substring(0, 20) + "...");
+
       const res = await fetch(
-        `http://localhost:8000/repositories/${repoId}/cortex-query`,
+        `http://localhost:8000/api/repositories/${repoId}/cortex-query`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             question: question,
@@ -331,6 +340,13 @@ const Index = () => {
           }),
         }
       );
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        console.error("❌ API Error:", res.status, errorData);
+        setAnswer(`Error ${res.status}: ${errorData.detail || "Unknown error"}`);
+        return;
+      }
 
       const data = await res.json();
 
