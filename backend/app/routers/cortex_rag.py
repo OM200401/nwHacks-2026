@@ -280,15 +280,19 @@ async def query_with_cortex(
             }
         
         # STEP 3: Build context from similar commits
+        # Prioritize AI summaries (code analysis) over commit messages
         context_parts = []
         sources = []
         
         for i, commit in enumerate(similar_commits):
             context = f"Commit {i+1} (SHA: {commit['SHA'][:7]}):\n"
-            context += f"Message: {commit['MESSAGE']}\n"
             
+            # Use AI summary if available (more detailed), otherwise fallback to message
             if commit.get('AI_SUMMARY'):
-                context += f"AI Summary: {commit['AI_SUMMARY']}\n"
+                context += f"Analysis: {commit['AI_SUMMARY']}\n"
+                context += f"Original Message: {commit['MESSAGE']}\n"
+            else:
+                context += f"Message: {commit['MESSAGE']}\n"
             
             if commit.get('FILES_CHANGED'):
                 try:

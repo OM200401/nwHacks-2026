@@ -682,6 +682,14 @@ async def enrich_existing_commits(
                 # Extract just filenames for the files_changed array
                 files_changed = [file["filename"] for file in detailed_commit["files_changed"]]
                 
+                # Generate AI summary from code changes
+                ai_summary = None
+                try:
+                    from app.services.gemini_service import generate_commit_summary
+                    ai_summary = generate_commit_summary(detailed_commit)
+                except Exception as gemini_error:
+                    logger.warning(f"⚠️ AI summary generation failed for {commit['sha'][:7]}: {gemini_error}")
+                
                 # Update the commit in database
                 from app.services.snowflake_service import snowflake_service
                 
@@ -690,7 +698,8 @@ async def enrich_existing_commits(
                 SET 
                     files_changed = PARSE_JSON(%s),
                     additions = %s,
-                    deletions = %s
+                    deletions = %s,
+                    ai_summary = %s
                 WHERE id = %s
                 """
                 
@@ -701,6 +710,7 @@ async def enrich_existing_commits(
                         json.dumps(files_changed),
                         detailed_commit["total_additions"],
                         detailed_commit["total_deletions"],
+                        ai_summary,
                         commit["id"]
                     ),
                     fetch=False
