@@ -16,7 +16,7 @@ from app.core.github_config import (
 from app.core.config import settings
 from app.security.auth import create_access_token, get_current_user
 from app.security.encryption import encrypt_github_token, store_token_in_1password
-from app.database.crud import create_or_update_user
+from app.database.snowflake_crud import create_or_update_user
 
 router = APIRouter()
 

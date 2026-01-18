@@ -13,7 +13,7 @@ from app.services.github_service import (
     fetch_repository_commits,
     fetch_commit_details
 )
-from app.database.crud import (
+from app.database.snowflake_crud import (
     get_user_by_id,
     create_repository,
     get_repository_by_id,
@@ -315,7 +315,7 @@ async def fetch_commits(
         
         github_token = await retrieve_github_token(user["encrypted_token_ref"])
         
-        # Fetch commits from GitHub
+        # Fetch commits from GitHub (basic info)
         commits = await fetch_repository_commits(
             github_token,
             repository["owner"],
@@ -328,6 +328,25 @@ async def fetch_commits(
         # Store commits in database
         stored_commits = []
         for commit in commits:
+            # Fetch detailed commit information (includes files, additions, deletions)
+            try:
+                detailed_commit = await fetch_commit_details(
+                    github_token,
+                    repository["owner"],
+                    repository["repo_name"],
+                    commit["sha"]
+                )
+                
+                # Extract just filenames for the files_changed array
+                files_changed = [file["filename"] for file in detailed_commit["files_changed"]]
+                additions = detailed_commit["total_additions"]
+                deletions = detailed_commit["total_deletions"]
+            except Exception as e:
+                # If detailed fetch fails, use basic info
+                files_changed = []
+                additions = 0
+                deletions = 0
+            
             stored_commit = await create_commit(
                 repo_id=repo_id,
                 sha=commit["sha"],
@@ -336,16 +355,19 @@ async def fetch_commits(
                 author_email=commit["author_email"],
                 commit_date=commit["commit_date"],
                 html_url=commit["html_url"],
-                files_changed=[],  # Basic info doesn't include files
-                additions=0,
-                deletions=0
+                files_changed=files_changed,
+                additions=additions,
+                deletions=deletions
             )
             stored_commits.append({
                 "id": stored_commit["id"],
                 "sha": stored_commit["sha"][:7],  # Short SHA
                 "message": stored_commit["message"][:80],  # Truncate long messages
                 "author": stored_commit["author_name"],
-                "date": stored_commit["commit_date"]
+                "date": stored_commit["commit_date"],
+                "files_changed": len(files_changed),
+                "additions": additions,
+                "deletions": deletions
             })
         
         # Get total stored commits count
@@ -533,6 +555,128 @@ async def get_commit_details(
         return {
             "repository": repository["full_name"],
             "commit": commit_details
+        }
+        
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"GitHub API error: {e.response.status_code}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching commit details: {str(e)}"
+        )
+
+
+@router.post("/repositories/{repo_id}/enrich-commits")
+async def enrich_existing_commits(
+    repo_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Enrich existing commits with detailed file information
+    
+    This endpoint fetches detailed information (files changed, additions, deletions)
+    for commits that were stored with basic info only. Useful for updating old commits.
+    
+    Requires: JWT authentication
+    
+    Path Parameters:
+        repo_id: Repository ID (UUID)
+    
+    Returns:
+        Number of commits enriched
+    """
+    
+    try:
+        # Get repository from database
+        repository = await get_repository_by_id(repo_id)
+        
+        if not repository:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Repository not found"
+            )
+        
+        # Verify repository belongs to authenticated user
+        if repository["user_id"] != current_user["user_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this repository"
+            )
+        
+        # Get user's GitHub token
+        user = await get_user_by_id(current_user["user_id"])
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        github_token = await retrieve_github_token(user["encrypted_token_ref"])
+        
+        # Get all commits for this repository from database
+        commits = await get_repository_commits(repo_id)
+        
+        enriched_count = 0
+        failed_count = 0
+        
+        for commit in commits:
+            # Skip if commit already has file data
+            if commit.get("additions", 0) > 0 or (commit.get("files_changed") and len(commit["files_changed"]) > 2):
+                continue
+            
+            try:
+                # Fetch detailed commit information from GitHub
+                detailed_commit = await fetch_commit_details(
+                    github_token,
+                    repository["owner"],
+                    repository["repo_name"],
+                    commit["sha"]
+                )
+                
+                # Extract just filenames for the files_changed array
+                files_changed = [file["filename"] for file in detailed_commit["files_changed"]]
+                
+                # Update the commit in database
+                from app.services.snowflake_service import snowflake_service
+                
+                update_query = """
+                UPDATE commits_analysis
+                SET 
+                    files_changed = PARSE_JSON(%s),
+                    additions = %s,
+                    deletions = %s
+                WHERE id = %s
+                """
+                
+                import json
+                snowflake_service.execute_query(
+                    update_query,
+                    params=(
+                        json.dumps(files_changed),
+                        detailed_commit["total_additions"],
+                        detailed_commit["total_deletions"],
+                        commit["id"]
+                    ),
+                    fetch=False
+                )
+                
+                enriched_count += 1
+                
+            except Exception as e:
+                failed_count += 1
+                continue
+        
+        return {
+            "repository": repository["full_name"],
+            "total_commits": len(commits),
+            "enriched": enriched_count,
+            "failed": failed_count,
+            "message": f"Successfully enriched {enriched_count} commits with file details"
         }
         
     except httpx.HTTPStatusError as e:
