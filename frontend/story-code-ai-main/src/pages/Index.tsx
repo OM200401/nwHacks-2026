@@ -310,33 +310,8 @@ const Index = () => {
   const [loading, setLoading] = useState(false);
   const [questionInput, setQuestionInput] = useState("");
 
-  const [repoId, setRepoId] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function loadRepo() {
-      try {
-        const res = await fetch("http://localhost:8000/repositories", {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
-          },
-        });
-
-        const repos = await res.json();
-
-        if (repos.length > 0) {
-          setRepoId(repos[0].id);
-        } else {
-          setAnswer("No repositories found in your account.");
-        }
-      } catch (err) {
-        console.error(err);
-        setAnswer("Failed to load repositories.");
-      }
-    }
-
-    loadRepo();
-  }, []);
-
+  const repoId = sessionStorage.getItem("analysis_id") || "";
+  console.log("Using repo ID:", repoId);
   async function askRepoQuestion(question: string) {
     try {
       setLoading(true);
