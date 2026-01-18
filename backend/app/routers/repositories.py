@@ -25,19 +25,6 @@ from app.database.snowflake_crud import (
     get_commits_count
 )
 from app.security.encryption import retrieve_github_token
-import os
-
-DEV_USER_ID = os.getenv("DEV_USER_ID")  # set this in .env for local dev
-
-async def get_dev_or_current_user():
-    """
-    Dev-only bypass: if DEV_USER_ID is set, treat requests as that user.
-    Otherwise, fall back to normal JWT auth.
-    """
-    if DEV_USER_ID:
-        return {"user_id": DEV_USER_ID}
-    return await get_current_user()
-
 
 router = APIRouter()
 
@@ -99,7 +86,7 @@ async def list_repositories(current_user: dict = Depends(get_current_user)):
 @router.post("/repositories/analyze")
 async def analyze_repository(
     request: AnalyzeRepositoryRequest,
-    current_user: dict = Depends(get_dev_or_current_user)
+    current_user: dict = Depends(get_current_user)
 ):
 
     """
@@ -290,7 +277,7 @@ async def fetch_commits(
     repo_id: str,
     page: int = 1,
     per_page: int = 100,
-    current_user: dict = Depends(get_dev_or_current_user)
+    current_user: dict = Depends(get_current_user)
 
 ):
     """
@@ -435,7 +422,7 @@ async def list_commits(
     repo_id: str,
     limit: int = 50,
     offset: int = 0,
-    current_user: dict = Depends(get_dev_or_current_user)
+    current_user: dict = Depends(get_current_user)
 
 ):
     """
@@ -527,7 +514,7 @@ async def list_commits(
 async def get_commit_details(
     repo_id: str,
     commit_sha: str,
-    current_user: dict = Depends(get_dev_or_current_user)
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Fetch detailed information about a specific commit from GitHub

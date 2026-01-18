@@ -201,6 +201,8 @@ const Index = () => {
   const [expandedSections, setExpandedSections] = useState<string[]>(["1"]);
   const [userQuestion, setUserQuestion] = useState("Why was the authentication system refactored in 2023?");
   const [questionInput, setQuestionInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [answer, setAnswer] = useState<string>("");
 
   useEffect(() => {
     console.log("Index mounted ✅");   // 1
@@ -233,7 +235,92 @@ const Index = () => {
     })();
   }, []);
 
-    
+  // Function to query RAG and update the commit graph with results
+  async function askRepoQuestion(question: string) {
+    try {
+      setLoading(true);
+
+      const token = localStorage.getItem("access_token");
+      if (!token) {
+        console.error("❌ No access token found in localStorage");
+        setAnswer("Please log in first - no authentication token found.");
+        return;
+      }
+
+      console.log("🔍 Asking question:", question);
+
+      const res = await fetch(
+        `http://localhost:8000/api/repositories/${REPO_ID}/cortex-query`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            question: question,
+            top_k: 5,
+            model: "mistral-7b",
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        console.error("❌ API Error:", res.status, errorData);
+        setAnswer(`Error ${res.status}: ${errorData.detail || "Unknown error"}`);
+        return;
+      }
+
+      const data = await res.json();
+      console.log("✅ RAG Response:", data);
+
+      // Update answer
+      setAnswer(data.answer || "No answer returned from backend.");
+
+      // Map sources to commit nodes and update the graph
+      if (data.sources && data.sources.length > 0) {
+        const ragCommits: CommitNode[] = data.sources.map((source: any, index: number) => {
+          // Determine relevance based on similarity score
+          let relevance: "high" | "medium" | "low" = "low";
+          if (source.similarity >= 0.7) relevance = "high";
+          else if (source.similarity >= 0.5) relevance = "medium";
+
+          return {
+            id: source.sha.substring(0, 7),
+            hash: source.sha.substring(0, 7),
+            summary: source.ai_summary || source.message,
+            description: source.message,
+            date: new Date().toISOString(), // You might want to fetch this from commit details
+            author: "Unknown", // You might want to fetch this from commit details
+            relevance,
+            fileCount: 0,
+            linkedSections: [],
+          };
+        });
+
+        console.log("📊 Updating graph with", ragCommits.length, "commits");
+        setCommitNodes(ragCommits);
+      }
+    } catch (err) {
+      console.error(err);
+      setAnswer("Failed to reach CodeAncestry backend.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Handle the Ask button click
+  const handleAsk = () => {
+    if (!questionInput.trim()) return;
+
+    const q = questionInput.trim();
+    setUserQuestion(q);
+    setQuestionInput("");
+    askRepoQuestion(q);
+  };
+
+
   const handleNodeClick = useCallback((nodeId: string) => {
     if (selectedCommitNode === nodeId) {
       // Clicking same node closes the panel
@@ -587,7 +674,19 @@ if (!activeCommit) {
           
           {/* Scrollable Answer Area */}
           <div className="flex-1 overflow-auto min-h-0">
-            <ExplanationPanel mode="explain" />
+            {loading ? (
+              <div className="p-6 text-center text-muted-foreground">
+                <div className="animate-pulse">Analyzing commits...</div>
+              </div>
+            ) : answer ? (
+              <div className="p-4">
+                <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <p className="text-foreground whitespace-pre-wrap">{answer}</p>
+                </div>
+              </div>
+            ) : (
+              <ExplanationPanel mode="explain" />
+            )}
           </div>
           
           {/* Follow-up Question Input - Fixed at bottom */}
@@ -599,8 +698,7 @@ if (!activeCommit) {
                 onChange={(e) => setQuestionInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && questionInput.trim()) {
-                    setUserQuestion(questionInput.trim());
-                    setQuestionInput("");
+                    handleAsk();
                   }
                 }}
                 placeholder="Ask a follow-up question..."
@@ -609,14 +707,10 @@ if (!activeCommit) {
               <Button 
                 size="sm" 
                 className="absolute right-1 top-1"
-                onClick={() => {
-                  if (questionInput.trim()) {
-                    setUserQuestion(questionInput.trim());
-                    setQuestionInput("");
-                  }
-                }}
+                onClick={handleAsk}
+                disabled={loading || !questionInput.trim()}
               >
-                Ask
+                {loading ? "..." : "Ask"}
               </Button>
             </div>
           </div>
