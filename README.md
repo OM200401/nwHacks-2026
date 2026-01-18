@@ -1,50 +1,67 @@
-# CodeAncestry - Legacy Code Explainer
+# CodeAncestry - AI-Powered Git Repository Analysis
 
-AI-powered tool that transforms undocumented legacy code into multi-layered explanations with voice walkthroughs. Preserving developer knowledge across generations.
+Analyze GitHub repositories using AI to understand code evolution, find relevant commits, and ask semantic questions about your codebase history.
 
-## Problem Statement
+## What It Does
 
-Developers inherit undocumented legacy codebases and spend 60%+ of their time trying to understand "why" decisions were made. Comments are outdated or missing, original developers have left, and critical tribal knowledge is lost forever. This knowledge gap costs companies millions in productivity and creates barriers for junior developers trying to contribute to mature projects.
+- 🔍 **Semantic Search**: Ask questions about your repository in natural language
+- 📊 **Commit Analysis**: Automatically analyzes all commits with AI summaries
+- 🔗 **Hybrid Queries**: Search by temporal filters, semantic relevance, or both
+- 📈 **Vector Embeddings**: Uses Snowflake Cortex for fast, accurate similarity matching
+- 🎯 **GitHub Integration**: Connect directly to your GitHub repositories via OAuth
 
 ## Tech Stack
-- **Frontend:** React + TypeScript + Vite
-- **Backend:** Python FastAPI  
-- **AI:** Snowflake Cortex AI + OpenRouter (Gemini)
-- **Database:** Snowflake (Vector Search + Data Warehouse)
-- **Security:** 🔐 **1Password** (Secrets Management)
-- **Authentication:** GitHub OAuth
-- **Deployment:** Vultr (planned)
 
-## 🔐 Security with 1Password
+- **Frontend**: React + TypeScript + Vite + Tailwind CSS
+- **Backend**: Python FastAPI
+- **Database**: Snowflake (Vector Search + Analytics)
+- **AI**: Snowflake Cortex (Embeddings & LLM) + OpenRouter (Query Classification)
+- **Auth**: GitHub OAuth
+- **Secrets**: 1Password Service Accounts
 
-We use **1Password Service Accounts** to securely manage all application secrets:
-- ✅ API keys and database credentials stored in encrypted vaults
-- ✅ Zero hardcoded secrets in code or environment files
-- ✅ Automatic fallback to `.env` for local development
-- ✅ Audit logging and access control
+## Quick Start
 
-See [1Password Integration Guide](backend/docs/1PASSWORD_INTEGRATION.md) for setup instructions.
+### Backend
+```bash
+cd backend
+pip install -r requirements.txt
+python main.py
+```
+
+### Frontend
+```bash
+cd frontend/story-code-ai-main
+npm install
+npm run dev
+```
+
+Visit `http://localhost:8080` to get started.
 
 ## Features
-- 4-tier explanations (Beginner → Intermediate → Architectural → Risk Analysis)
-- Voice walkthrough with multiple personas
-- Confusion Score + Time Saved metrics
-- GitHub repo integration
-- Searchable pattern knowledge base
-- Terminal CLI tool: `legacy-explain <file>`
-- Export to markdown
 
----
+✅ GitHub OAuth login  
+✅ Repository selection & commit analysis  
+✅ AI-powered commit summaries (Cortex)  
+✅ Vector embeddings for semantic search  
+✅ Temporal, semantic, and hybrid query types  
+✅ Interactive commit graph visualization  
+✅ Source citation with similarity scores  
 
-## 🙏 Sponsors & Partners
+## How It Works
 
-### 🔐 [1Password](https://1password.com)
-**Secure Secrets Management** - We use 1Password Service Accounts to protect all API keys, database credentials, and OAuth secrets. Zero secrets in code!
+1. **Connect GitHub** → OAuth login and select a repository
+2. **Analyze Commits** → Fetch all commits and generate embeddings
+3. **Ask Questions** → Query your repository with natural language
+4. **Get Answers** → AI finds relevant commits and explains the context
 
-[Learn more about our 1Password integration →](backend/docs/1PASSWORD_INTEGRATION.md)
+## Architecture
 
-### ☁️ [Vultr](https://www.vultr.com)
-**Cloud Infrastructure** (Planned) - Production deployment on Vultr Cloud Compute with Object Storage for caching embeddings.
+- **Cortex RAG**: Retrieval-Augmented Generation using Snowflake Cortex
+  - Temporal search: Date/author filtering
+  - Semantic search: Vector similarity matching
+  - Hybrid search: Combined filtering + semantic relevance
+- **Query Parser**: Uses Gemini to classify user questions
+- **Commit Summarization**: Cortex-powered summaries for code context
 
 ---
 
