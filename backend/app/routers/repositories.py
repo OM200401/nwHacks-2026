@@ -13,7 +13,7 @@ from app.services.github_service import (
     fetch_repository_commits,
     fetch_commit_details
 )
-from app.database.crud import (
+from app.database.snowflake_crud import (
     get_user_by_id,
     create_repository,
     get_repository_by_id,

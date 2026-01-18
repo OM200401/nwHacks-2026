@@ -9,6 +9,7 @@ import logging
 
 from app.core.config import settings
 from app.routers import auth, repositories
+from app.services.snowflake_service import snowflake_service, init_database
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -16,9 +17,21 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(" CodeAncestry API starting...")
+    logger.info("🚀 CodeAncestry API starting...")
+    
+    # Initialize Snowflake database
+    try:
+        logger.info("📊 Initializing Snowflake database...")
+        await init_database()
+        logger.info("✅ Snowflake database initialized successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Snowflake database: {e}")
+        logger.warning("⚠️ Application will continue without Snowflake (check credentials)")
+    
     yield
-    logger.info(" Shutting down...")
+    
+    logger.info("👋 Shutting down...")
+    snowflake_service.close()
 
 
 app = FastAPI(title="CodeAncestry API", version="1.0.0", lifespan=lifespan)
