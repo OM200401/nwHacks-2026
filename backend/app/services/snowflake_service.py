@@ -34,11 +34,31 @@ class SnowflakeService:
                 )
                 logger.info("✅ Snowflake connection established")
                 
-                # Create database if it doesn't exist
+                # Try to create/use database and schema
+                # This may fail for users without CREATE privileges, but that's okay
                 cursor = self.connection.cursor()
-                cursor.execute(f"CREATE DATABASE IF NOT EXISTS {settings.SNOWFLAKE_DATABASE}")
+                try:
+                    cursor.execute(f"CREATE DATABASE IF NOT EXISTS {settings.SNOWFLAKE_DATABASE}")
+                    logger.info(f"✅ Database {settings.SNOWFLAKE_DATABASE} created/verified")
+                except Exception as db_error:
+                    if "insufficient privileges" in str(db_error).lower():
+                        logger.warning(f"⚠️ Cannot create database (insufficient privileges) - attempting to use existing")
+                    else:
+                        logger.warning(f"⚠️ Database creation skipped: {db_error}")
+                
+                # Use the database (this should work even without CREATE privileges)
                 cursor.execute(f"USE DATABASE {settings.SNOWFLAKE_DATABASE}")
-                cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {settings.SNOWFLAKE_SCHEMA}")
+                
+                try:
+                    cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {settings.SNOWFLAKE_SCHEMA}")
+                    logger.info(f"✅ Schema {settings.SNOWFLAKE_SCHEMA} created/verified")
+                except Exception as schema_error:
+                    if "insufficient privileges" in str(schema_error).lower():
+                        logger.warning(f"⚠️ Cannot create schema (insufficient privileges) - attempting to use existing")
+                    else:
+                        logger.warning(f"⚠️ Schema creation skipped: {schema_error}")
+                
+                # Use the schema (this should work even without CREATE privileges)
                 cursor.execute(f"USE SCHEMA {settings.SNOWFLAKE_SCHEMA}")
                 cursor.close()
                 logger.info(f"✅ Using {settings.SNOWFLAKE_DATABASE}.{settings.SNOWFLAKE_SCHEMA}")
