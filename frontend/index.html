@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeAncestry - Test UI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: white;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+        
+        h2 {
+            color: #333;
+            margin-bottom: 16px;
+        }
+        
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 12px;
+        }
+        
+        .btn-danger {
+            background: #ef4444;
+        }
+        
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .repo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+        
+        .repo-card {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .repo-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }
+        
+        .repo-name {
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 8px;
+        }
+        
+        .repo-desc {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+        
+        .repo-meta {
+            display: flex;
+            gap: 12px;
+            font-size: 12px;
+            color: #9ca3af;
+        }
+        
+        .commits-list {
+            margin-top: 16px;
+        }
+        
+        .commit-item {
+            background: #f9fafb;
+            border-left: 3px solid #667eea;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .commit-item:hover {
+            background: #f3f4f6;
+            border-left-color: #5568d3;
+            transform: translateX(4px);
+        }
+        
+        .commit-sha {
+            font-family: monospace;
+            color: #667eea;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        
+        .commit-message {
+            color: #1f2937;
+            margin: 4px 0;
+            font-weight: 500;
+        }
+        
+        .commit-meta {
+            font-size: 12px;
+            color: #6b7280;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        
+        .modal.show {
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            max-width: 1000px;
+            width: 100%;
+            margin: 40px auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        
+        .modal-header {
+            padding: 24px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        
+        .modal-body {
+            padding: 24px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        
+        .close-modal {
+            background: #ef4444;
+            color: white;
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        
+        .close-modal:hover {
+            background: #dc2626;
+        }
+        
+        .file-change {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+        
+        .file-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .file-name {
+            font-family: monospace;
+            font-weight: 600;
+            color: #1f2937;
+            font-size: 14px;
+        }
+        
+        .file-stats {
+            display: flex;
+            gap: 12px;
+            font-size: 12px;
+        }
+        
+        .additions {
+            color: #059669;
+            font-weight: 600;
+        }
+        
+        .deletions {
+            color: #dc2626;
+            font-weight: 600;
+        }
+        
+        .file-status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .status-added {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .status-modified {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .status-removed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .diff-viewer {
+            background: #1f2937;
+            color: #e5e7eb;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            margin-top: 8px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .diff-line {
+            white-space: pre;
+        }
+        
+        .diff-addition {
+            background: rgba(16, 185, 129, 0.2);
+            color: #6ee7b7;
+        }
+        
+        .diff-deletion {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+        }
+        
+        .commit-detail-header {
+            margin-bottom: 20px;
+        }
+        
+        .commit-detail-sha {
+            font-family: monospace;
+            font-size: 18px;
+            color: #667eea;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .commit-detail-message {
+            font-size: 16px;
+            color: #1f2937;
+            font-weight: 500;
+            margin-bottom: 12px;
+        }
+        
+        .commit-detail-meta {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        
+        .stats-summary {
+            background: #f3f4f6;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-around;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #6b7280;
+            text-transform: uppercase;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .status-pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .status-processing {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .status-complete {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .progress-bar {
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 8px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: #667eea;
+            transition: width 0.3s;
+        }
+        
+        .user-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+        }
+        
+        .error {
+            background: #fee2e2;
+            border: 1px solid #fca5a5;
+            color: #991b1b;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏛️ CodeAncestry Test UI</h1>
+        
+        <!-- Login Section -->
+        <div id="loginSection" class="card">
+            <h2>GitHub Authentication</h2>
+            <p style="margin-bottom: 16px; color: #6b7280;">Sign in with GitHub to analyze repositories</p>
+            <button onclick="login()">Login with GitHub</button>
+        </div>
+        
+        <!-- User Dashboard -->
+        <div id="dashboardSection" class="card hidden">
+            <div class="user-info">
+                <div>
+                    <h2>Welcome, <span id="username"></span>!</h2>
+                    <p style="color: #6b7280;">User ID: <span id="userId"></span></p>
+                </div>
+                <button onclick="logout()" class="btn-danger">Logout</button>
+            </div>
+        </div>
+        
+        <!-- Repositories -->
+        <div id="reposSection" class="card hidden">
+            <h2>Your Repositories</h2>
+            <button onclick="loadRepositories()">Refresh Repositories</button>
+            <div id="reposList" class="repo-grid"></div>
+        </div>
+        
+        <!-- Selected Repository Details -->
+        <div id="repoDetailsSection" class="card hidden">
+            <h2 id="repoTitle"></h2>
+            <div id="repoStatus"></div>
+            
+            <div class="actions">
+                <button onclick="analyzeCurrentRepo()">Start Analysis</button>
+                <button onclick="fetchCommits(1)" class="btn-small">Fetch Commits (Page 1)</button>
+                <button onclick="viewCommits()" class="btn-small">View Stored Commits</button>
+                <button onclick="closeRepoDetails()" class="btn-small btn-danger">Close</button>
+            </div>
+            
+            <div id="commitsList" class="commits-list hidden"></div>
+        </div>
+        
+        <div id="errorSection" class="error hidden"></div>
+    </div>
+    
+    <!-- Commit Details Modal -->
+    <div id="commitModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div style="flex: 1;">
+                    <h2>Commit Details</h2>
+                </div>
+                <button class="close-modal" onclick="closeCommitModal()">×</button>
+            </div>
+            <div class="modal-body" id="commitModalBody">
+                <div class="loading">Loading commit details...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let token = localStorage.getItem('access_token');
+        let currentRepo = null;
+        
+        // Check if user is logged in on load
+        window.onload = async () => {
+            // Check for OAuth callback with token in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const accessToken = urlParams.get('access_token');
+            const userId = urlParams.get('user_id');
+            const username = urlParams.get('username');
+            
+            if (accessToken) {
+                // Store token from callback
+                token = accessToken;
+                localStorage.setItem('access_token', token);
+                
+                // Clean URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+                
+                // Show dashboard
+                await checkAuth();
+                return;
+            }
+            
+            // Check for stored token
+            if (token) {
+                await checkAuth();
+            }
+        };
+        
+        async function login() {
+            try {
+                const response = await fetch(`${API_BASE}/auth/github`);
+                const data = await response.json();
+                window.location.href = data.auth_url;
+            } catch (error) {
+                showError('Failed to initiate login: ' + error.message);
+            }
+        }
+        
+        async function checkAuth() {
+            try {
+                const response = await fetch(`${API_BASE}/auth/me`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Not authenticated');
+                }
+                
+                const user = await response.json();
+                showDashboard(user);
+                await loadRepositories();
+            } catch (error) {
+                localStorage.removeItem('access_token');
+                token = null;
+                showLogin();
+            }
+        }
+        
+        function showDashboard(user) {
+            document.getElementById('loginSection').classList.add('hidden');
+            document.getElementById('dashboardSection').classList.remove('hidden');
+            document.getElementById('reposSection').classList.remove('hidden');
+            document.getElementById('username').textContent = user.github_username;
+            document.getElementById('userId').textContent = user.user_id;
+        }
+        
+        function showLogin() {
+            document.getElementById('loginSection').classList.remove('hidden');
+            document.getElementById('dashboardSection').classList.add('hidden');
+            document.getElementById('reposSection').classList.add('hidden');
+            document.getElementById('repoDetailsSection').classList.add('hidden');
+        }
+        
+        function logout() {
+            localStorage.removeItem('access_token');
+            token = null;
+            showLogin();
+        }
+        
+        async function loadRepositories() {
+            try {
+                showLoading('Loading repositories...');
+                const response = await fetch(`${API_BASE}/api/repositories`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await response.json();
+                displayRepositories(data.repositories);
+            } catch (error) {
+                showError('Failed to load repositories: ' + error.message);
+            }
+        }
+        
+        function displayRepositories(repos) {
+            const list = document.getElementById('reposList');
+            list.innerHTML = repos.map(repo => `
+                <div class="repo-card" onclick='selectRepo(${JSON.stringify(repo)})'>
+                    <div class="repo-name">${repo.full_name}</div>
+                    <div class="repo-desc">${repo.description || 'No description'}</div>
+                    <div class="repo-meta">
+                        <span>⭐ ${repo.stargazers_count}</span>
+                        <span>${repo.language || 'Unknown'}</span>
+                        <span>${repo.private ? '🔒 Private' : '🌐 Public'}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function selectRepo(repo) {
+            currentRepo = repo;
+            document.getElementById('repoDetailsSection').classList.remove('hidden');
+            document.getElementById('repoTitle').textContent = repo.full_name;
+            document.getElementById('commitsList').classList.add('hidden');
+            checkRepoStatus();
+        }
+        
+        function closeRepoDetails() {
+            document.getElementById('repoDetailsSection').classList.add('hidden');
+            currentRepo = null;
+        }
+        
+        async function analyzeCurrentRepo() {
+            if (!currentRepo) return;
+            
+            try {
+                showLoading('Starting analysis...');
+                const response = await fetch(`${API_BASE}/api/repositories/analyze`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        owner: currentRepo.full_name.split('/')[0],
+                        repo_name: currentRepo.name,
+                        full_name: currentRepo.full_name,
+                        github_repo_id: currentRepo.id,
+                        html_url: currentRepo.html_url,
+                        default_branch: currentRepo.default_branch
+                    })
+                });
+                
+                const data = await response.json();
+                currentRepo.analysis_id = data.repository.id;
+                showSuccess('Analysis started! Repository ID: ' + data.repository.id);
+                await checkRepoStatus();
+            } catch (error) {
+                showError('Failed to start analysis: ' + error.message);
+            }
+        }
+        
+        async function checkRepoStatus() {
+            if (!currentRepo.analysis_id) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/repositories/${currentRepo.analysis_id}/status`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await response.json();
+                displayStatus(data);
+            } catch (error) {
+                console.error('Failed to check status:', error);
+            }
+        }
+        
+        function displayStatus(status) {
+            const statusDiv = document.getElementById('repoStatus');
+            statusDiv.innerHTML = `
+                <div style="margin: 16px 0;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span>Analysis Status: <span class="status-badge status-${status.analysis_status}">${status.analysis_status.toUpperCase()}</span></span>
+                        <span>${status.analyzed_commits} / ${status.total_commits} commits</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${status.progress_percentage}%"></div>
+                    </div>
+                    <p style="font-size: 12px; color: #6b7280; margin-top: 4px;">
+                        ${status.progress_percentage.toFixed(1)}% complete
+                    </p>
+                </div>
+            `;
+        }
+        
+        async function fetchCommits(page = 1) {
+            if (!currentRepo.analysis_id) {
+                showError('Please analyze the repository first');
+                return;
+            }
+            
+            try {
+                showLoading(`Fetching commits (page ${page})...`);
+                const response = await fetch(`${API_BASE}/api/repositories/${currentRepo.analysis_id}/fetch-commits?page=${page}&per_page=100`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await response.json();
+                showSuccess(`Fetched ${data.fetched} commits! Total stored: ${data.total_stored}`);
+                
+                if (data.has_more) {
+                    const next = confirm(`Fetched page ${page} (${data.fetched} commits). Fetch page ${page + 1}?`);
+                    if (next) {
+                        await fetchCommits(page + 1);
+                    }
+                } else {
+                    await checkRepoStatus();
+                }
+            } catch (error) {
+                showError('Failed to fetch commits: ' + error.message);
+            }
+        }
+        
+        async function viewCommits() {
+            if (!currentRepo.analysis_id) {
+                showError('Please analyze the repository first');
+                return;
+            }
+            
+            try {
+                showLoading('Loading commits...');
+                const response = await fetch(`${API_BASE}/api/repositories/${currentRepo.analysis_id}/commits?limit=50`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await response.json();
+                displayCommits(data.commits, data.pagination);
+            } catch (error) {
+                showError('Failed to load commits: ' + error.message);
+            }
+        }
+        
+        function displayCommits(commits, pagination) {
+            const list = document.getElementById('commitsList');
+            list.classList.remove('hidden');
+            
+            list.innerHTML = `
+                <h3 style="margin-top: 24px;">Commits (${pagination.total} total, showing ${pagination.returned})</h3>
+                ${commits.map(commit => `
+                    <div class="commit-item" onclick='viewCommitDetails("${commit.sha}")'>
+                        <div class="commit-sha">${commit.sha_short} <span class="status-badge status-${commit.analysis_status}">${commit.analysis_status}</span></div>
+                        <div class="commit-message">${escapeHtml(commit.message)}</div>
+                        <div class="commit-meta">
+                            ${escapeHtml(commit.author_name)} • ${new Date(commit.commit_date).toLocaleString()} • 
+                            ${commit.files_changed_count} files • +${commit.additions} -${commit.deletions}
+                            <span style="margin-left: 8px; color: #667eea;">Click to view details →</span>
+                        </div>
+                    </div>
+                `).join('')}
+            `;
+        }
+        
+        async function viewCommitDetails(sha) {
+            if (!currentRepo.analysis_id) return;
+            
+            // Show modal
+            const modal = document.getElementById('commitModal');
+            const modalBody = document.getElementById('commitModalBody');
+            modal.classList.add('show');
+            modalBody.innerHTML = '<div class="loading">Loading commit details...</div>';
+            
+            try {
+                const response = await fetch(
+                    `${API_BASE}/api/repositories/${currentRepo.analysis_id}/commits/${sha}/details`,
+                    { headers: { 'Authorization': `Bearer ${token}` } }
+                );
+                
+                if (!response.ok) throw new Error('Failed to fetch commit details');
+                
+                const data = await response.json();
+                displayCommitDetails(data.commit);
+            } catch (error) {
+                modalBody.innerHTML = `<div class="error">Failed to load commit details: ${error.message}</div>`;
+            }
+        }
+        
+        function displayCommitDetails(commit) {
+            const modalBody = document.getElementById('commitModalBody');
+            
+            modalBody.innerHTML = `
+                <div class="commit-detail-header">
+                    <div class="commit-detail-sha">${commit.sha}</div>
+                    <div class="commit-detail-message">${escapeHtml(commit.message)}</div>
+                    <div class="commit-detail-meta">
+                        <strong>${escapeHtml(commit.author_name)}</strong> (${escapeHtml(commit.author_email)}) • 
+                        ${new Date(commit.commit_date).toLocaleString()} • 
+                        <a href="${commit.html_url}" target="_blank" style="color: #667eea;">View on GitHub ↗</a>
+                    </div>
+                </div>
+                
+                <div class="stats-summary">
+                    <div class="stat-item">
+                        <div class="stat-value">${commit.files_changed.length}</div>
+                        <div class="stat-label">Files Changed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value additions">+${commit.total_additions}</div>
+                        <div class="stat-label">Additions</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value deletions">-${commit.total_deletions}</div>
+                        <div class="stat-label">Deletions</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${commit.total_changes}</div>
+                        <div class="stat-label">Total Changes</div>
+                    </div>
+                </div>
+                
+                <h3 style="margin-bottom: 16px;">Files Changed</h3>
+                ${commit.files_changed.map(file => `
+                    <div class="file-change">
+                        <div class="file-header">
+                            <div>
+                                <span class="file-status status-${file.status}">${file.status}</span>
+                                <span class="file-name">${escapeHtml(file.filename)}</span>
+                            </div>
+                            <div class="file-stats">
+                                <span class="additions">+${file.additions}</span>
+                                <span class="deletions">-${file.deletions}</span>
+                                <span style="color: #6b7280;">${file.changes} changes</span>
+                            </div>
+                        </div>
+                        ${file.patch ? `
+                            <div class="diff-viewer">
+                                ${formatDiff(file.patch)}
+                            </div>
+                        ` : '<p style="color: #9ca3af; font-size: 12px; margin-top: 8px;">No diff available</p>'}
+                    </div>
+                `).join('')}
+            `;
+        }
+        
+        function formatDiff(patch) {
+            if (!patch) return '';
+            
+            return patch.split('\n').map(line => {
+                let className = '';
+                if (line.startsWith('+') && !line.startsWith('+++')) {
+                    className = 'diff-addition';
+                } else if (line.startsWith('-') && !line.startsWith('---')) {
+                    className = 'diff-deletion';
+                }
+                return `<div class="diff-line ${className}">${escapeHtml(line)}</div>`;
+            }).join('');
+        }
+        
+        function closeCommitModal() {
+            document.getElementById('commitModal').classList.remove('show');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function showLoading(message) {
+            const errorDiv = document.getElementById('errorSection');
+            errorDiv.className = 'loading';
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('errorSection');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            setTimeout(() => errorDiv.classList.add('hidden'), 5000);
+        }
+        
+        function showSuccess(message) {
+            const errorDiv = document.getElementById('errorSection');
+            errorDiv.className = 'card';
+            errorDiv.style.background = '#d1fae5';
+            errorDiv.style.color = '#065f46';
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            setTimeout(() => errorDiv.classList.add('hidden'), 3000);
+        }
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('commitModal');
+            if (event.target === modal) {
+                closeCommitModal();
+            }
+        };
+    </script>
+</body>
+</html>
