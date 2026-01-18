@@ -135,33 +135,19 @@ useEffect(() => {
 
   const handleAsk = async () => {
   const t = localStorage.getItem("access_token");
-  if (!t || !question.trim()) return;
+  if (!t || !selectedRepo) return;
 
   setAnalyzing(true);
   setAnalysisStep("Analyzing repository...");
 
-  // Use selectedRepo if available, otherwise parse repoUrl
-  let owner, repo_name, full_name, github_repo_id, html_url, default_branch;
-  
-  if (selectedRepo) {
-    // Parse owner from full_name (format: "owner/repo")
-    const [repoOwner, repoName] = selectedRepo.full_name.split('/');
-    owner = repoOwner;
-    repo_name = repoName || selectedRepo.name;
-    full_name = selectedRepo.full_name;
-    github_repo_id = selectedRepo.id;
-    html_url = selectedRepo.html_url;
-    default_branch = selectedRepo.default_branch || "main";
-  } else {
-    const parsed = parseGithubRepo(repoUrl);
-    if (!parsed) {
-      setAnalyzing(false);
-      return;
-    }
-    owner = parsed.owner;
-    repo_name = parsed.repo;
-    full_name = `${parsed.owner}/${parsed.repo}`;
-  }
+  // Use selectedRepo info
+  const [repoOwner, repoName] = selectedRepo.full_name.split('/');
+  const owner = repoOwner;
+  const repo_name = repoName || selectedRepo.name;
+  const full_name = selectedRepo.full_name;
+  const github_repo_id = selectedRepo.id;
+  const html_url = selectedRepo.html_url;
+  const default_branch = selectedRepo.default_branch || "main";
 
   try {
     const res = await fetch(`${API_BASE}/api/repositories/analyze`, {
@@ -189,8 +175,8 @@ useEffect(() => {
 
     const data = await res.json();
 
-    // store question + repo id somewhere (state manager / query params)
-    sessionStorage.setItem("last_question", question);
+    // Store a default question and repo id
+    sessionStorage.setItem("last_question", "Tell me about the recent changes in this repository");
     sessionStorage.setItem("analysis_id", data.repository.id);
 
     const repoId = data.repository.id;
@@ -281,7 +267,7 @@ useEffect(() => {
             </div>
             <div>
               <h1 className="font-display font-bold text-xl text-foreground">CodeAncestry</h1>
-              <p className="text-xs text-muted-foreground">Legacy Code Explainer</p>
+              <p className="text-xs text-muted-foreground">Brain for your Codebase</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -333,10 +319,11 @@ useEffect(() => {
             AI-Powered Code Archaeology
           </div>
           <h2 className="font-display text-4xl md:text-5xl lg:text-6xl font-bold text-foreground mb-4 leading-tight">
-            Ask questions about your<br />
+            Talk to your<br />
             <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              legacy code
-            </span>
+              codebase 
+            </span><br />
+            like it's your teammate
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             Connect your repo, ask a question. We'll dig through your commit history 
@@ -355,104 +342,78 @@ useEffect(() => {
           }`}>
             <div className="flex items-center gap-3 mb-4">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                isConnected 
+                isConnected && selectedRepo
                   ? 'bg-primary text-primary-foreground' 
                   : 'bg-muted text-muted-foreground'
               }`}>
-                {isConnected ? '✓' : '1'}
+                {isConnected && selectedRepo ? '✓' : '1'}
               </div>
-              <span className="font-semibold text-foreground">Connect your repository</span>
+              <span className="font-semibold text-foreground">
+                {isConnected && selectedRepo ? 'Repository Connected' : 'Select your repository'}
+              </span>
             </div>
             
-            <div className="flex gap-3">
-              <div className="flex-1 relative">
-                <GitBranch className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                {isConnected && selectedRepo ? (
-                  <div className="h-12 pl-11 pr-4 flex items-center bg-background border border-input rounded-lg">
-                    <span className="font-medium text-foreground">{selectedRepo.full_name || selectedRepo.name}</span>
-                  </div>
+            {isConnected ? (
+              <div className="space-y-3">
+                {selectedRepo ? (
+                  <>
+                    <div className="flex items-center gap-3 p-4 bg-background border border-input rounded-lg">
+                      <GitBranch className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <span className="font-medium text-foreground flex-1">{selectedRepo.full_name || selectedRepo.name}</span>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => {
+                          setShowRepoSelector(true);
+                          fetchUserRepos();
+                        }}
+                        className="gap-2"
+                      >
+                        Change Repository
+                      </Button>
+                    </div>
+                    
+                    <Button 
+                      onClick={handleAsk} 
+                      disabled={analyzing}
+                      className="w-full h-12 gap-2 text-base"
+                    >
+                      {analyzing ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
+                          {analysisStep}
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          Analyze Repository
+                          <ArrowRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </Button>
+                  </>
                 ) : (
-                  <Input
-                    placeholder="Connect your repository to get started"
-                    value={repoUrl}
-                    onChange={(e) => setRepoUrl(e.target.value)}
-                    className="pl-11 h-12 bg-background"
-                    disabled={isConnected}
-                  />
+                  <Button 
+                    onClick={() => {
+                      setShowRepoSelector(true);
+                      fetchUserRepos();
+                    }}
+                    className="w-full h-12 gap-2 text-base"
+                  >
+                    <GitBranch className="w-4 h-4" />
+                    Select Repository
+                  </Button>
                 )}
               </div>
-              {!isConnected ? (
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground mb-4">Login to select a repository</p>
                 <Button onClick={handleConnectCodebase} className="h-12 px-6 gap-2">
                   <Github className="w-4 h-4" />
-                  Connect Your Codebase
+                  Sign in with GitHub
                 </Button>
-              ) : (
-                <Button variant="outline" onClick={() => {setIsConnected(false); setSelectedRepo(null);}} className="h-12">
-                  Change
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {/* Step 2: Ask Question */}
-          <div className={`p-6 rounded-2xl border-2 transition-all ${
-            isConnected 
-              ? 'border-border bg-card/50 backdrop-blur-sm' 
-              : 'border-border/50 bg-muted/30 opacity-60'
-          }`}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                isConnected 
-                  ? 'bg-muted text-foreground' 
-                  : 'bg-muted/50 text-muted-foreground'
-              }`}>
-                2
               </div>
-              <span className="font-semibold text-foreground">Ask about your code</span>
-            </div>
-            
-            <div className="relative">
-              <Search className="absolute left-4 top-4 w-5 h-5 text-muted-foreground" />
-              <textarea
-                placeholder="Why was this authentication module rewritten? Who made the decision and what problem were they solving?"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                disabled={!isConnected}
-                className="w-full h-28 pl-12 pr-4 py-3 rounded-xl bg-background border border-input resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50 text-foreground placeholder:text-muted-foreground"
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-2 mt-4">
-              {exampleQuestions.map((q, i) => (
-                <button
-                  key={i}
-                  onClick={() => setQuestion(q)}
-                  disabled={!isConnected}
-                  className="px-3 py-1.5 text-sm rounded-full bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                >
-                  {q.length > 35 ? q.slice(0, 35) + '...' : q}
-                </button>
-              ))}
-            </div>
-
-            <Button 
-              onClick={handleAsk} 
-              disabled={!isConnected || !question.trim() || analyzing}
-              className="w-full mt-4 h-12 gap-2 text-base"
-            >
-              {analyzing ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
-                  {analysisStep}
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  Analyze Code History
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </Button>
+            )}
           </div>
         </div>
 
