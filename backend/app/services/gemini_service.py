@@ -95,6 +95,82 @@ def polish_commits(commits: List[Dict]) -> List[Dict]:
     return results
 
 
+def generate_commit_summary(commit_details: Dict) -> str:
+    """
+    Generate a 50-word AI summary analyzing the commit's code changes.
+    
+    This function:
+    1. Takes commit details including message, files, and code diffs
+    2. Sends to Gemini with context about the actual code changes
+    3. Returns a concise technical summary for better semantic search
+    
+    Args:
+        commit_details: Dict containing:
+            - message: Original commit message
+            - files_changed: List of file objects with diffs
+            - total_additions: Number of lines added
+            - total_deletions: Number of lines deleted
+    
+    Returns:
+        50-word technical summary of what changed and why
+    """
+    
+    # Extract key information
+    message = commit_details.get("message", "No message")
+    files = commit_details.get("files_changed", [])
+    additions = commit_details.get("total_additions", 0)
+    deletions = commit_details.get("total_deletions", 0)
+    
+    # Build context from code changes
+    code_context = []
+    for file in files[:5]:  # Limit to first 5 files to avoid token limits
+        filename = file.get("filename", "unknown")
+        status = file.get("status", "modified")
+        file_additions = file.get("additions", 0)
+        file_deletions = file.get("deletions", 0)
+        patch = file.get("patch", "")[:500]  # Limit patch to 500 chars per file
+        
+        code_context.append(f"""
+File: {filename} ({status})
++{file_additions} -{file_deletions}
+{patch}
+""")
+    
+    code_changes = "\n".join(code_context) if code_context else "No code changes available"
+    
+    # Create prompt for Gemini
+    prompt = f"""You are a senior software engineer analyzing a git commit.
+
+Generate a concise 50-word technical summary that explains WHAT changed and WHY based on the code.
+
+Commit Message: {message}
+
+Files Changed: {len(files)}
+Lines: +{additions} -{deletions}
+
+Code Changes:
+{code_changes}
+
+Requirements:
+- EXACTLY 50 words (strict limit)
+- Focus on the technical changes in the code
+- Explain what was implemented/fixed/refactored
+- Include key function/file names if relevant
+- Use technical language (not casual)
+- NO markdown formatting
+- Be specific about the changes
+
+Return ONLY the 50-word summary, nothing else."""
+
+    try:
+        summary = call_gemini(prompt)
+        return summary.strip()
+    except Exception as e:
+        print(f"❌ Gemini summary generation failed: {e}")
+        # Fallback: Use commit message if AI fails
+        return f"Commit: {message}. Modified {len(files)} files with {additions} additions and {deletions} deletions."
+
+
 # ─────────────────────────────────────────────
 # MOCK DATA + LOCAL TESTING
 # ─────────────────────────────────────────────
