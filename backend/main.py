@@ -1,11 +1,15 @@
 """
 CodeAncestry API - Main application
+
+Security powered by 1Password Service Accounts
+https://1password.com
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+import os
 
 from app.core.config import settings
 from app.routers import auth, repositories, cortex_rag
@@ -18,6 +22,12 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 CodeAncestry API starting...")
+    
+    # Log 1Password integration status
+    if os.getenv("OP_SERVICE_ACCOUNT_TOKEN"):
+        logger.info("🔐 1Password Service Account enabled - Secrets loaded from vault")
+    else:
+        logger.info("📁 Using environment variables from .env file")
     
     # Initialize Snowflake database
     try:
