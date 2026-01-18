@@ -409,10 +409,15 @@ async def fetch_commits(
                 additions = detailed_commit["total_additions"]
                 deletions = detailed_commit["total_deletions"]
                 
-                # Skip AI summary generation during initial commit fetch
-                # AI summaries will be generated on-demand during RAG queries for better performance
-                ai_summary = None
-                logger.debug(f"⏭️  Skipped AI summary generation for {commit['sha'][:7]} (will generate on-demand)")
+                # Generate AI summary using Snowflake Cortex (fast, integrated)
+                try:
+                    from app.services.snowflake_service import generate_commit_summary_cortex
+                    ai_summary = generate_commit_summary_cortex(detailed_commit)
+                    logger.info(f"✅ Generated Cortex summary for commit {commit['sha'][:7]}")
+                except Exception as cortex_error:
+                    logger.warning(f"⚠️ Cortex summary generation failed for {commit['sha'][:7]}: {cortex_error}")
+                    ai_summary = None
+                    # Continue without AI summary - not critical
                 
             except Exception as e:
                 # If detailed fetch fails, use basic info

@@ -239,6 +239,69 @@ def create_pr_analysis_table():
     logger.info("✅ PR analysis table created/verified with VECTOR support")
 
 
+def generate_commit_summary_cortex(commit_details: Dict) -> str:
+    """
+    Generate a commit summary using Snowflake Cortex (fast, integrated).
+    
+    Args:
+        commit_details: Dict with message, files_changed, total_additions, total_deletions
+        
+    Returns:
+        Technical summary of the commit (50 words)
+    """
+    import json
+    
+    message = commit_details.get("message", "No message")
+    files = commit_details.get("files_changed", [])
+    additions = commit_details.get("total_additions", 0)
+    deletions = commit_details.get("total_deletions", 0)
+    
+    # Build concise file list with changes
+    file_context = []
+    for file in files[:5]:  # Limit to 5 files for brevity
+        filename = file.get("filename", "unknown")
+        status = file.get("status", "modified")
+        file_add = file.get("additions", 0)
+        file_del = file.get("deletions", 0)
+        file_context.append(f"{filename} ({status}) +{file_add} -{file_del}")
+    
+    files_str = ", ".join(file_context) if file_context else "No files"
+    
+    # Build prompt for Cortex
+    prompt = f"""You are a senior software engineer. Generate a concise 50-word technical summary of this git commit based on code changes.
+
+Commit Message: {message}
+
+Files Changed ({len(files)} total): {files_str}
+Lines: +{additions} -{deletions}
+
+Requirements:
+- EXACTLY 50 words
+- Technical language focused on semantic search
+- Explain WHAT was implemented/fixed/refactored
+- Include key function names or architectural changes
+- Do not add any preamble or explanation
+
+Summary:"""
+    
+    try:
+        # Use Cortex to generate summary
+        query = "SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-7b', %s) as summary"
+        result = snowflake_service.execute_query(query, params=(prompt,), fetch=True)
+        
+        if result and result[0].get("SUMMARY"):
+            summary = result[0]["SUMMARY"].strip()
+            logger.debug(f"✅ Generated Cortex summary ({len(summary)} chars)")
+            return summary
+        else:
+            logger.warning("⚠️ Cortex returned empty summary")
+            return message[:200]  # Fallback to truncated message
+            
+    except Exception as e:
+        logger.warning(f"⚠️ Cortex summary generation failed: {e}")
+        return message[:200]  # Fallback to truncated message
+
+
 def get_snowflake_service() -> SnowflakeService:
     """Get global Snowflake service instance"""
     return snowflake_service
