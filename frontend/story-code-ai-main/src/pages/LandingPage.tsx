@@ -1,26 +1,191 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Github, ArrowRight, Code2, Sparkles, History, Users, Zap, GitBranch, MessageSquare, Clock, Search } from "lucide-react";
+import { Github, ArrowRight, Code2, Sparkles, History, Users, Zap, GitBranch, MessageSquare, Clock, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useEffect } from "react";
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+
+const startGithubLogin = async () => {
+  try {
+    const res = await fetch(`${API_BASE}/auth/github`);
+    if (!res.ok) throw new Error(`Auth init failed: ${res.status}`);
+    const data = await res.json();
+    if (!data?.auth_url) throw new Error("Missing auth_url from backend");
+    window.location.href = data.auth_url;
+  } catch (e) {
+    console.error(e);
+    alert(e.message ?? "Failed to start GitHub login");
+  }
+};
+
+
+function useOAuthCallback() {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    console.log("[OAuth] callback params:", Object.fromEntries(params.entries()));
+    const accessToken = params.get("access_token");
+
+    if (accessToken) {
+      localStorage.setItem("access_token", accessToken);
+
+      // clean the URL (remove token from address bar)
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+}
+
+function parseGithubRepo(url: string) {
+  // supports https://github.com/owner/repo or owner/repo
+  const cleaned = url.replace("https://github.com/", "").replace(/^\//, "").replace(/\/$/, "");
+  const [owner, repo] = cleaned.split("/");
+  if (!owner || !repo) return null;
+  return { owner, repo };
+}
+
 
 export default function LandingPage() {
   const navigate = useNavigate();
   const [repoUrl, setRepoUrl] = useState("");
   const [question, setQuestion] = useState("");
   const [isConnected, setIsConnected] = useState(false);
+  const [user, setUser] = useState<{ github_username: string; user_id: string } | null>(null);
+  const [showRepoSelector, setShowRepoSelector] = useState(false);
+  const [showSignInDialog, setShowSignInDialog] = useState(false);
+  const [availableRepos, setAvailableRepos] = useState<any[]>([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
+  const [selectedRepo, setSelectedRepo] = useState<any>(null);
 
-  const handleConnect = () => {
-    if (repoUrl.trim()) {
-      setIsConnected(true);
+
+  useOAuthCallback();
+
+    useEffect(() => {
+  setIsConnected(!!localStorage.getItem("access_token"));
+}, []);
+
+
+useEffect(() => {
+  const run = async () => {
+    const t = localStorage.getItem("access_token");
+    if (!t) return;
+
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${t}` },
+    });
+
+    if (!res.ok) {
+      localStorage.removeItem("access_token");
+      return;
+    }
+
+    const data = await res.json();
+    setUser(data);
+    setIsConnected(true);
+  };
+
+  run();
+}, []);
+
+  const fetchUserRepos = async () => {
+    const t = localStorage.getItem("access_token");
+    if (!t) return;
+
+    setLoadingRepos(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/repositories`, {
+        headers: { Authorization: `Bearer ${t}` },
+      });
+
+      if (!res.ok) throw new Error("Failed to fetch repositories");
+      const data = await res.json();
+      setAvailableRepos(data.repositories || []);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to load repositories");
+    } finally {
+      setLoadingRepos(false);
     }
   };
 
-  const handleAsk = () => {
-    if (question.trim() && isConnected) {
-      navigate("/analyze");
+  const handleConnectCodebase = async () => {
+    const t = localStorage.getItem("access_token");
+    
+    if (!t) {
+      // Not signed in - show sign in dialog
+      setShowSignInDialog(true);
+      return;
     }
+
+    // Signed in - show repository selector
+    setShowRepoSelector(true);
+    fetchUserRepos();
   };
+
+  const handleSelectRepo = (repo: any) => {
+    setSelectedRepo(repo);
+    setRepoUrl(repo.full_name);
+    setShowRepoSelector(false);
+    setIsConnected(true);
+  };
+
+
+  const handleAsk = async () => {
+  const t = localStorage.getItem("access_token");
+  if (!t || !question.trim()) return;
+
+  // Use selectedRepo if available, otherwise parse repoUrl
+  let owner, repo_name, full_name, github_repo_id, html_url, default_branch;
+  
+  if (selectedRepo) {
+    // Parse owner from full_name (format: "owner/repo")
+    const [repoOwner, repoName] = selectedRepo.full_name.split('/');
+    owner = repoOwner;
+    repo_name = repoName || selectedRepo.name;
+    full_name = selectedRepo.full_name;
+    github_repo_id = selectedRepo.id;
+    html_url = selectedRepo.html_url;
+    default_branch = selectedRepo.default_branch || "main";
+  } else {
+    const parsed = parseGithubRepo(repoUrl);
+    if (!parsed) return;
+    owner = parsed.owner;
+    repo_name = parsed.repo;
+    full_name = `${parsed.owner}/${parsed.repo}`;
+  }
+
+  const res = await fetch(`${API_BASE}/api/repositories/analyze`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${t}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      owner,
+      repo_name,
+      full_name,
+      github_repo_id,
+      html_url,
+      default_branch
+    }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Failed to analyze repository" }));
+    alert(error.detail || "Failed to analyze repository");
+    return;
+  }
+
+  const data = await res.json();
+
+  // store question + repo id somewhere (state manager / query params)
+  sessionStorage.setItem("last_question", question);
+  sessionStorage.setItem("analysis_id", data.repository.id);
+
+  navigate("/analyze");
+};
+
 
   const exampleQuestions = [
     "Why was the authentication system refactored?",
@@ -74,10 +239,36 @@ export default function LandingPage() {
                 Connected
               </div>
             )}
-            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-              <Github className="w-4 h-4 mr-2" />
-              Sign in
-            </Button>
+            {user ? (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50">
+                  <img 
+                    src={`https://github.com/${user.github_username}.png`} 
+                    alt={user.github_username}
+                    className="w-6 h-6 rounded-full"
+                  />
+                  <span className="text-sm font-medium text-foreground">{user.github_username}</span>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => {
+                    localStorage.removeItem("access_token");
+                    setUser(null);
+                    setIsConnected(false);
+                    setSelectedRepo(null);
+                    window.location.reload();
+                  }}
+                >
+                  Log out
+                </Button>
+              </div>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={startGithubLogin}>
+                <Github className="w-4 h-4 mr-2" />
+                Sign in
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -124,21 +315,27 @@ export default function LandingPage() {
             <div className="flex gap-3">
               <div className="flex-1 relative">
                 <GitBranch className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="https://github.com/your-org/your-repo"
-                  value={repoUrl}
-                  onChange={(e) => setRepoUrl(e.target.value)}
-                  className="pl-11 h-12 bg-background"
-                  disabled={isConnected}
-                />
+                {isConnected && selectedRepo ? (
+                  <div className="h-12 pl-11 pr-4 flex items-center bg-background border border-input rounded-lg">
+                    <span className="font-medium text-foreground">{selectedRepo.full_name || selectedRepo.name}</span>
+                  </div>
+                ) : (
+                  <Input
+                    placeholder="Connect your repository to get started"
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                    className="pl-11 h-12 bg-background"
+                    disabled={isConnected}
+                  />
+                )}
               </div>
               {!isConnected ? (
-                <Button onClick={handleConnect} className="h-12 px-6 gap-2">
+                <Button onClick={handleConnectCodebase} className="h-12 px-6 gap-2">
                   <Github className="w-4 h-4" />
-                  Connect
+                  Connect Your Codebase
                 </Button>
               ) : (
-                <Button variant="outline" onClick={() => setIsConnected(false)} className="h-12">
+                <Button variant="outline" onClick={() => {setIsConnected(false); setSelectedRepo(null);}} className="h-12">
                   Change
                 </Button>
               )}
@@ -226,6 +423,107 @@ export default function LandingPage() {
           </div>
         </div>
       </main>
+
+      {/* Sign In Dialog */}
+      {showSignInDialog && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card rounded-2xl border border-border max-w-md w-full p-8 shadow-2xl animate-fade-in">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-foreground">Sign in Required</h3>
+              <button
+                onClick={() => setShowSignInDialog(false)}
+                className="p-2 hover:bg-muted rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-muted-foreground mb-6">
+              Please sign in with your GitHub account to connect your codebase and start analyzing your repositories.
+            </p>
+            <Button
+              onClick={() => {
+                setShowSignInDialog(false);
+                startGithubLogin();
+              }}
+              className="w-full h-12 gap-2"
+              size="lg"
+            >
+              <Github className="w-5 h-5" />
+              Sign in with GitHub
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Repository Selector Dialog */}
+      {showRepoSelector && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card rounded-2xl border border-border max-w-2xl w-full max-h-[80vh] overflow-hidden shadow-2xl animate-fade-in">
+            <div className="flex items-center justify-between p-6 border-b border-border">
+              <h3 className="text-2xl font-bold text-foreground">Select Repository</h3>
+              <button
+                onClick={() => setShowRepoSelector(false)}
+                className="p-2 hover:bg-muted rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              {loadingRepos ? (
+                <div className="text-center py-12">
+                  <div className="inline-block w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4"></div>
+                  <p className="text-muted-foreground">Loading your repositories...</p>
+                </div>
+              ) : availableRepos.length === 0 ? (
+                <div className="text-center py-12">
+                  <GitBranch className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">No repositories found</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {availableRepos.map((repo) => (
+                    <button
+                      key={repo.id}
+                      onClick={() => handleSelectRepo(repo)}
+                      className="w-full p-4 rounded-xl border border-border hover:border-primary hover:bg-primary/5 transition-all text-left group"
+                    >
+                      <div className="flex items-start gap-3">
+                        <GitBranch className="w-5 h-5 text-muted-foreground group-hover:text-primary mt-0.5 transition-colors" />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                            {repo.full_name || repo.name}
+                          </div>
+                          {repo.description && (
+                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                              {repo.description}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                            {repo.language && (
+                              <span className="flex items-center gap-1">
+                                <div className="w-2 h-2 rounded-full bg-primary"></div>
+                                {repo.language}
+                              </span>
+                            )}
+                            {repo.stargazers_count !== undefined && (
+                              <span>\u2b50 {repo.stargazers_count}</span>
+                            )}
+                            {repo.updated_at && (
+                              <span>Updated {new Date(repo.updated_at).toLocaleDateString()}</span>
+                            )}
+                          </div>
+                        </div>
+                        <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-primary opacity-0 group-hover:opacity-100 transition-all" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
