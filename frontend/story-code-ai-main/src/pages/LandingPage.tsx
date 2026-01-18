@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Github, ArrowRight, Code2, Sparkles, History, Users, Zap, GitBranch, MessageSquare, Clock, Search } from "lucide-react";
+import { Github, ArrowRight, Code2, Sparkles, History, Users, Zap, GitBranch, MessageSquare, Clock, Search, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useEffect } from "react";
@@ -103,6 +103,27 @@ useEffect(() => {
   setIsConnected(true);
 };
 
+  const handleLogout = async () => {
+    const t = localStorage.getItem("access_token");
+    // Remove token locally and reset UI state
+    localStorage.removeItem("access_token");
+    setIsConnected(false);
+    setUser(null);
+
+    // Optionally notify backend to invalidate session/token if endpoint exists
+    try {
+      if (t) {
+        await fetch(`${API_BASE}/auth/logout`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${t}` },
+        });
+      }
+    } catch (e) {
+      // ignore network errors for logout
+      console.warn('logout request failed', e);
+    }
+  };
+
 
   const handleAsk = async () => {
   const t = localStorage.getItem("access_token");
@@ -186,16 +207,23 @@ useEffect(() => {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {isConnected && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-500 text-sm">
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                Connected
-              </div>
+            {isConnected ? (
+              <>
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-500 text-sm">
+                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                  Connected
+                </div>
+                <Button variant="ghost" size="sm" onClick={handleLogout}>
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Sign out
+                </Button>
+              </>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={startGithubLogin}>
+                <Github className="w-4 h-4 mr-2" />
+                Sign in
+              </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={startGithubLogin}>
-              <Github className="w-4 h-4 mr-2" />
-              Sign in
-            </Button>
           </div>
         </div>
       </header>
