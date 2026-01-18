@@ -300,6 +300,7 @@ const Index = () => {
   const [selectedCommitNode, setSelectedCommitNode] = useState<string | null>(
     null
   );
+  const [commitNodesState, setCommitNodesState] = useState<CommitNode[]>([]);
 
   const [activeSection, setActiveSection] = useState("1");
   const [expandedSections, setExpandedSections] = useState<string[]>(["1"]);
@@ -312,6 +313,15 @@ const Index = () => {
 
   const repoId = sessionStorage.getItem("analysis_id") || "";
   console.log("Using repo ID:", repoId);
+
+  // Load initial question from sessionStorage if available
+  useEffect(() => {
+    const savedQuestion = sessionStorage.getItem("last_question");
+    if (savedQuestion) {
+      setUserQuestion(savedQuestion);
+    }
+  }, []);
+
   async function askRepoQuestion(question: string) {
     try {
       setLoading(true);
@@ -351,6 +361,31 @@ const Index = () => {
       const data = await res.json();
 
       setAnswer(data.answer || "No answer returned from backend.");
+
+      // Map sources to commit nodes and update the graph
+      if (data.sources && data.sources.length > 0) {
+        const ragCommits: CommitNode[] = data.sources.map((source: any) => {
+          // Determine relevance based on similarity score
+          let relevance: "high" | "medium" | "low" = "low";
+          if (source.similarity >= 0.7) relevance = "high";
+          else if (source.similarity >= 0.5) relevance = "medium";
+
+          return {
+            id: source.sha.substring(0, 7),
+            hash: source.sha.substring(0, 7),
+            summary: source.ai_summary || source.message,
+            description: source.message,
+            date: new Date().toISOString(),
+            author: "Unknown",
+            relevance,
+            fileCount: 0,
+            linkedSections: [],
+          };
+        });
+
+        console.log("📊 Updating graph with", ragCommits.length, "RAG commits");
+        setCommitNodesState(ragCommits);
+      }
     } catch (err) {
       console.error(err);
       setAnswer("Failed to reach CodeAncestry backend.");
@@ -370,8 +405,8 @@ const Index = () => {
 
   // Get active commit data based on selection
   const activeCommit = selectedCommitNode
-    ? commitNodes.find((n) => n.id === selectedCommitNode)
-    : commitNodes[0];
+    ? commitNodesState.find((n) => n.id === selectedCommitNode)
+    : commitNodesState[0];
 
   const handleNodeClick = useCallback(
     (nodeId: string) => {
@@ -380,14 +415,14 @@ const Index = () => {
         setSelectedCommitNode(null);
       } else {
         setSelectedCommitNode(nodeId);
-        const node = commitNodes.find((n) => n.id === nodeId);
+        const node = commitNodesState.find((n) => n.id === nodeId);
         if (node && node.linkedSections.length > 0) {
           setExpandedSections(node.linkedSections);
           setActiveSection(node.linkedSections[0]);
         }
       }
     },
-    [selectedCommitNode]
+    [selectedCommitNode, commitNodesState]
   );
 
   const handleCloseDetails = useCallback(() => {
@@ -483,7 +518,7 @@ const Index = () => {
               Commit Graph
             </span>
             <div className="ml-auto text-xs text-muted-foreground">
-              {commitNodes.length} commits
+              {commitNodesState.length} commits
             </div>
           </div>
 
@@ -509,8 +544,7 @@ const Index = () => {
                   "flex flex-col",
                   selectedCommitNode ? "space-y-4" : "space-y-6"
                 )}
-              >
-                {commitNodes.map((node) => (
+              >                {commitNodesState.map((node) => (
                   <button
                     key={node.id}
                     onClick={() => handleNodeClick(node.id)}
