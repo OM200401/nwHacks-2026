@@ -9,13 +9,18 @@ import httpx
 from app.security.auth import get_current_user
 from app.services.github_service import (
     get_user_repositories,
-    get_repository_commits_count
+    get_repository_commits_count,
+    fetch_repository_commits,
+    fetch_commit_details
 )
 from app.database.crud import (
     get_user_by_id,
     create_repository,
     get_repository_by_id,
-    update_repository_status
+    update_repository_status,
+    create_commit,
+    get_repository_commits,
+    get_commits_count
 )
 from app.security.encryption import retrieve_github_token
 
@@ -253,6 +258,299 @@ async def get_repository_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching repository status: {str(e)}"
+        )
+
+
+@router.post("/repositories/{repo_id}/fetch-commits")
+async def fetch_commits(
+    repo_id: str,
+    page: int = 1,
+    per_page: int = 100,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Fetch commits from GitHub and store them in the database
+    
+    This endpoint fetches commits page by page from GitHub's API
+    and stores them locally. You can call this multiple times to
+    paginate through all commits.
+    
+    Requires: JWT authentication
+    
+    Path Parameters:
+        repo_id: Repository ID (UUID)
+    
+    Query Parameters:
+        page: Page number (default: 1)
+        per_page: Commits per page, max 100 (default: 100)
+    
+    Returns:
+        Fetched commits and pagination info
+    """
+    
+    try:
+        # Get repository from database
+        repository = await get_repository_by_id(repo_id)
+        
+        if not repository:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Repository not found"
+            )
+        
+        # Verify repository belongs to authenticated user
+        if repository["user_id"] != current_user["user_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this repository"
+            )
+        
+        # Get user's GitHub token
+        user = await get_user_by_id(current_user["user_id"])
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        github_token = await retrieve_github_token(user["encrypted_token_ref"])
+        
+        # Fetch commits from GitHub
+        commits = await fetch_repository_commits(
+            github_token,
+            repository["owner"],
+            repository["repo_name"],
+            repository["default_branch"],
+            per_page,
+            page
+        )
+        
+        # Store commits in database
+        stored_commits = []
+        for commit in commits:
+            stored_commit = await create_commit(
+                repo_id=repo_id,
+                sha=commit["sha"],
+                message=commit["message"],
+                author_name=commit["author_name"],
+                author_email=commit["author_email"],
+                commit_date=commit["commit_date"],
+                html_url=commit["html_url"],
+                files_changed=[],  # Basic info doesn't include files
+                additions=0,
+                deletions=0
+            )
+            stored_commits.append({
+                "id": stored_commit["id"],
+                "sha": stored_commit["sha"][:7],  # Short SHA
+                "message": stored_commit["message"][:80],  # Truncate long messages
+                "author": stored_commit["author_name"],
+                "date": stored_commit["commit_date"]
+            })
+        
+        # Get total stored commits count
+        total_stored = await get_commits_count(repo_id)
+        
+        # Update repository status
+        await update_repository_status(
+            repo_id,
+            status="processing",
+            analyzed_commits=total_stored
+        )
+        
+        return {
+            "page": page,
+            "per_page": per_page,
+            "fetched": len(commits),
+            "total_stored": total_stored,
+            "has_more": len(commits) == per_page,  # If we got full page, likely more exist
+            "commits": stored_commits,
+            "next_page": page + 1 if len(commits) == per_page else None
+        }
+        
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"GitHub API error: {e.response.status_code}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching commits: {str(e)}"
+        )
+
+
+@router.get("/repositories/{repo_id}/commits")
+async def list_commits(
+    repo_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    List stored commits for a repository
+    
+    Returns commits that have been fetched from GitHub and
+    stored locally. Use /fetch-commits to fetch more commits.
+    
+    Requires: JWT authentication
+    
+    Path Parameters:
+        repo_id: Repository ID (UUID)
+    
+    Query Parameters:
+        limit: Max commits to return (default: 50)
+        offset: Number of commits to skip (default: 0)
+    
+    Returns:
+        List of commits with pagination info
+    """
+    
+    try:
+        # Get repository from database
+        repository = await get_repository_by_id(repo_id)
+        
+        if not repository:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Repository not found"
+            )
+        
+        # Verify repository belongs to authenticated user
+        if repository["user_id"] != current_user["user_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this repository"
+            )
+        
+        # Get commits from database
+        commits = await get_repository_commits(repo_id, limit, offset)
+        total_count = await get_commits_count(repo_id)
+        
+        # Format response
+        commits_list = [
+            {
+                "id": commit["id"],
+                "sha": commit["sha"],
+                "sha_short": commit["sha"][:7],
+                "message": commit["message"],
+                "author_name": commit["author_name"],
+                "author_email": commit["author_email"],
+                "commit_date": commit["commit_date"],
+                "html_url": commit["html_url"],
+                "files_changed_count": len(commit["files_changed"]),
+                "additions": commit["additions"],
+                "deletions": commit["deletions"],
+                "analysis_status": commit["analysis_status"],
+                "has_ai_summary": commit["ai_summary"] is not None
+            }
+            for commit in commits
+        ]
+        
+        return {
+            "repository": {
+                "id": repository["id"],
+                "full_name": repository["full_name"]
+            },
+            "pagination": {
+                "total": total_count,
+                "limit": limit,
+                "offset": offset,
+                "returned": len(commits_list),
+                "has_more": offset + len(commits_list) < total_count
+            },
+            "commits": commits_list
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error listing commits: {str(e)}"
+        )
+
+
+@router.get("/repositories/{repo_id}/commits/{commit_sha}/details")
+async def get_commit_details(
+    repo_id: str,
+    commit_sha: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Fetch detailed information about a specific commit from GitHub
+    
+    This fetches fresh data from GitHub including file changes,
+    diffs, and statistics. Useful for getting detailed info on demand.
+    
+    Requires: JWT authentication
+    
+    Path Parameters:
+        repo_id: Repository ID (UUID)
+        commit_sha: Commit SHA (can be short form like 'abc123' or full)
+    
+    Returns:
+        Detailed commit information with file changes
+    """
+    
+    try:
+        # Get repository from database
+        repository = await get_repository_by_id(repo_id)
+        
+        if not repository:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Repository not found"
+            )
+        
+        # Verify repository belongs to authenticated user
+        if repository["user_id"] != current_user["user_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this repository"
+            )
+        
+        # Get user's GitHub token
+        user = await get_user_by_id(current_user["user_id"])
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        github_token = await retrieve_github_token(user["encrypted_token_ref"])
+        
+        # Fetch commit details from GitHub
+        commit_details = await fetch_commit_details(
+            github_token,
+            repository["owner"],
+            repository["repo_name"],
+            commit_sha
+        )
+        
+        return {
+            "repository": repository["full_name"],
+            "commit": commit_details
+        }
+        
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Commit not found"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"GitHub API error: {e.response.status_code}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching commit details: {str(e)}"
         )
 
 

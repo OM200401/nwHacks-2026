@@ -41,6 +41,9 @@ async def get_user_by_id(user_id: str) -> Optional[Dict]:
 # Repository storage (in-memory for MVP)
 repositories_db = {}
 
+# Commits storage (in-memory for MVP)
+commits_db = {}
+
 
 async def create_repository(
     user_id: str,
@@ -145,4 +148,88 @@ async def update_repository_status(
 async def get_user_repositories(user_id: str) -> List[Dict]:
     """Get all repositories for a user"""
     return [repo for repo in repositories_db.values() if repo["user_id"] == user_id]
+
+
+async def create_commit(
+    repo_id: str,
+    sha: str,
+    message: str,
+    author_name: str,
+    author_email: str,
+    commit_date: str,
+    html_url: str,
+    files_changed: List[str] = None,
+    additions: int = 0,
+    deletions: int = 0
+) -> Dict:
+    """
+    Store a commit record
+    
+    Args:
+        repo_id: Repository ID this commit belongs to
+        sha: Commit SHA (unique identifier)
+        message: Commit message
+        author_name: Author's name
+        author_email: Author's email
+        commit_date: ISO format commit date
+        html_url: GitHub URL for the commit
+        files_changed: List of file paths modified
+        additions: Lines added
+        deletions: Lines deleted
+    
+    Returns:
+        Commit record
+    """
+    import uuid
+    from datetime import datetime
+    
+    # Check if commit already exists
+    for commit in commits_db.values():
+        if commit["sha"] == sha and commit["repo_id"] == repo_id:
+            return commit  # Already stored
+    
+    commit_id = str(uuid.uuid4())
+    new_commit = {
+        "id": commit_id,
+        "repo_id": repo_id,
+        "sha": sha,
+        "message": message,
+        "author_name": author_name,
+        "author_email": author_email,
+        "commit_date": commit_date,
+        "html_url": html_url,
+        "files_changed": files_changed or [],
+        "additions": additions,
+        "deletions": deletions,
+        "analysis_status": "pending",  # pending, analyzed, failed
+        "ai_summary": None,  # Will be filled by Gemini later
+        "embedding": None,  # Will be filled by sentence-transformers later
+        "created_at": datetime.utcnow()
+    }
+    
+    commits_db[commit_id] = new_commit
+    return new_commit
+
+
+async def get_repository_commits(repo_id: str, limit: int = 100, offset: int = 0) -> List[Dict]:
+    """
+    Get commits for a repository with pagination
+    
+    Args:
+        repo_id: Repository ID
+        limit: Max number of commits to return
+        offset: Number of commits to skip
+    
+    Returns:
+        List of commit records
+    """
+    repo_commits = [c for c in commits_db.values() if c["repo_id"] == repo_id]
+    # Sort by commit date (newest first)
+    repo_commits.sort(key=lambda x: x["commit_date"], reverse=True)
+    return repo_commits[offset:offset + limit]
+
+
+async def get_commits_count(repo_id: str) -> int:
+    """Get total number of stored commits for a repository"""
+    return len([c for c in commits_db.values() if c["repo_id"] == repo_id])
 

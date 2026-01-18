@@ -139,3 +139,122 @@ async def get_repository_commits_count(
             commits = response.json()
             return len(commits)
 
+
+async def fetch_repository_commits(
+    github_token: str,
+    owner: str,
+    repo: str,
+    branch: str = "main",
+    per_page: int = 100,
+    page: int = 1
+) -> List[Dict]:
+    """
+    Fetch commits from a GitHub repository with pagination
+    
+    Args:
+        github_token: Decrypted GitHub access token
+        owner: Repository owner
+        repo: Repository name
+        branch: Branch name (default: main)
+        per_page: Commits per page (max 100)
+        page: Page number (1-indexed)
+    
+    Returns:
+        List of commit objects with detailed information
+    """
+    
+    url = f"https://api.github.com/repos/{owner}/{repo}/commits"
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+    }
+    
+    params = {
+        "sha": branch,
+        "per_page": min(per_page, 100),  # GitHub max is 100
+        "page": page
+    }
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        
+        commits = response.json()
+    
+    # Transform to our format with key information
+    return [
+        {
+            "sha": commit["sha"],
+            "message": commit["commit"]["message"],
+            "author_name": commit["commit"]["author"]["name"],
+            "author_email": commit["commit"]["author"]["email"],
+            "commit_date": commit["commit"]["author"]["date"],
+            "html_url": commit["html_url"],
+            "author_github_login": commit["author"]["login"] if commit.get("author") else None,
+            "author_avatar": commit["author"]["avatar_url"] if commit.get("author") else None,
+        }
+        for commit in commits
+    ]
+
+
+async def fetch_commit_details(
+    github_token: str,
+    owner: str,
+    repo: str,
+    sha: str
+) -> Dict:
+    """
+    Fetch detailed information about a specific commit
+    
+    Includes: files changed, additions, deletions, patch/diff
+    
+    Args:
+        github_token: Decrypted GitHub access token
+        owner: Repository owner
+        repo: Repository name
+        sha: Commit SHA
+    
+    Returns:
+        Detailed commit object with files changed
+    """
+    
+    url = f"https://api.github.com/repos/{owner}/{repo}/commits/{sha}"
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        
+        commit_data = response.json()
+    
+    # Extract file changes
+    files_changed = [
+        {
+            "filename": file["filename"],
+            "status": file["status"],  # added, removed, modified
+            "additions": file["additions"],
+            "deletions": file["deletions"],
+            "changes": file["changes"],
+            "patch": file.get("patch", "")  # Actual diff (may be large)
+        }
+        for file in commit_data.get("files", [])
+    ]
+    
+    return {
+        "sha": commit_data["sha"],
+        "message": commit_data["commit"]["message"],
+        "author_name": commit_data["commit"]["author"]["name"],
+        "author_email": commit_data["commit"]["author"]["email"],
+        "commit_date": commit_data["commit"]["author"]["date"],
+        "html_url": commit_data["html_url"],
+        "files_changed": files_changed,
+        "total_additions": commit_data["stats"]["additions"],
+        "total_deletions": commit_data["stats"]["deletions"],
+        "total_changes": commit_data["stats"]["total"]
+    }
+
