@@ -106,13 +106,13 @@ async def generate_embeddings_with_cortex(
         logger.info(f"Generating embeddings with Snowflake Cortex model: {request.model}")
         
         # SQL to generate embeddings using Cortex
-        # This combines: message + ai_summary + file paths + additions/deletions for rich context
+        # PRIORITY: ai_summary (code analysis) > message (if no AI summary)
+        # Also includes: file paths + additions/deletions for rich context
         query = f"""
         UPDATE commits_analysis
         SET embedding = SNOWFLAKE.CORTEX.EMBED_TEXT_768(
             '{request.model}',
-            message || ' ' || 
-            COALESCE(ai_summary, '') || ' ' ||
+            COALESCE(ai_summary, message) || ' ' || 
             COALESCE(ARRAY_TO_STRING(files_changed, ' '), '') || ' ' ||
             'additions: ' || COALESCE(additions::VARCHAR, '0') || ' ' ||
             'deletions: ' || COALESCE(deletions::VARCHAR, '0')

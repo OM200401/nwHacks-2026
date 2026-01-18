@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List
 from pydantic import BaseModel
 import httpx
+import logging
 from app.security.auth import get_current_user
 from app.services.github_service import (
     get_user_repositories,
@@ -26,6 +27,7 @@ from app.database.snowflake_crud import (
 from app.security.encryption import retrieve_github_token
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class AnalyzeRepositoryRequest(BaseModel):
