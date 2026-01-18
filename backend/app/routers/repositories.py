@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List
 from pydantic import BaseModel
 import httpx
+import logging
 from app.security.auth import get_current_user
 from app.services.github_service import (
     get_user_repositories,
@@ -26,6 +27,7 @@ from app.database.snowflake_crud import (
 from app.security.encryption import retrieve_github_token
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class AnalyzeRepositoryRequest(BaseModel):
@@ -338,6 +340,12 @@ async def fetch_commits(
         stored_commits = []
         for commit in commits:
             # Fetch detailed commit information (includes files, additions, deletions)
+            detailed_commit = None
+            files_changed = []
+            additions = 0
+            deletions = 0
+            ai_summary = None
+            
             try:
                 detailed_commit = await fetch_commit_details(
                     github_token,
@@ -350,8 +358,19 @@ async def fetch_commits(
                 files_changed = [file["filename"] for file in detailed_commit["files_changed"]]
                 additions = detailed_commit["total_additions"]
                 deletions = detailed_commit["total_deletions"]
+                
+                # Generate AI summary from code changes using Gemini
+                try:
+                    from app.services.gemini_service import generate_commit_summary
+                    ai_summary = generate_commit_summary(detailed_commit)
+                    logger.info(f"✅ Generated AI summary for commit {commit['sha'][:7]}")
+                except Exception as gemini_error:
+                    logger.warning(f"⚠️ AI summary generation failed for {commit['sha'][:7]}: {gemini_error}")
+                    # Continue without AI summary - not critical
+                
             except Exception as e:
                 # If detailed fetch fails, use basic info
+                logger.warning(f"⚠️ Could not fetch details for commit {commit['sha'][:7]}: {e}")
                 files_changed = []
                 additions = 0
                 deletions = 0
@@ -368,6 +387,16 @@ async def fetch_commits(
                 additions=additions,
                 deletions=deletions
             )
+            
+            # If we have an AI summary and the commit was stored, update it
+            if stored_commit and ai_summary:
+                try:
+                    from app.database.snowflake_crud import update_commit_ai_summary
+                    await update_commit_ai_summary(stored_commit["id"], ai_summary)
+                    logger.info(f"✅ Stored AI summary for commit {stored_commit['sha'][:7]}")
+                except Exception as update_error:
+                    logger.warning(f"⚠️ Failed to update AI summary: {update_error}")
+            
             if stored_commit:
                 stored_commits.append({
                     "id": stored_commit["id"],
@@ -377,7 +406,8 @@ async def fetch_commits(
                     "date": stored_commit["commit_date"],
                     "files_changed": len(files_changed),
                     "additions": additions,
-                    "deletions": deletions
+                    "deletions": deletions,
+                    "has_ai_summary": ai_summary is not None
                 })
         
         # Get total stored commits count
@@ -652,6 +682,14 @@ async def enrich_existing_commits(
                 # Extract just filenames for the files_changed array
                 files_changed = [file["filename"] for file in detailed_commit["files_changed"]]
                 
+                # Generate AI summary from code changes
+                ai_summary = None
+                try:
+                    from app.services.gemini_service import generate_commit_summary
+                    ai_summary = generate_commit_summary(detailed_commit)
+                except Exception as gemini_error:
+                    logger.warning(f"⚠️ AI summary generation failed for {commit['sha'][:7]}: {gemini_error}")
+                
                 # Update the commit in database
                 from app.services.snowflake_service import snowflake_service
                 
@@ -660,7 +698,8 @@ async def enrich_existing_commits(
                 SET 
                     files_changed = PARSE_JSON(%s),
                     additions = %s,
-                    deletions = %s
+                    deletions = %s,
+                    ai_summary = %s
                 WHERE id = %s
                 """
                 
@@ -671,6 +710,7 @@ async def enrich_existing_commits(
                         json.dumps(files_changed),
                         detailed_commit["total_additions"],
                         detailed_commit["total_deletions"],
+                        ai_summary,
                         commit["id"]
                     ),
                     fetch=False
