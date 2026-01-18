@@ -8,7 +8,11 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.core.config import settings
+<<<<<<< HEAD
 from app.routers import auth, repositories, cortex_rag
+=======
+from app.routers import auth, repositories
+>>>>>>> ec73de78e635ef53c47ab1b2eabab2c2397eb514
 from app.services.snowflake_service import snowflake_service, init_database
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")

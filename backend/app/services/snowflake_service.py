@@ -30,6 +30,7 @@ class SnowflakeService:
                     account=settings.SNOWFLAKE_ACCOUNT,
                     user=settings.SNOWFLAKE_USER,
                     password=settings.SNOWFLAKE_PASSWORD,
+<<<<<<< HEAD
                     warehouse=settings.SNOWFLAKE_WAREHOUSE
                 )
                 logger.info("✅ Snowflake connection established")
@@ -43,6 +44,13 @@ class SnowflakeService:
                 cursor.close()
                 logger.info(f"✅ Using {settings.SNOWFLAKE_DATABASE}.{settings.SNOWFLAKE_SCHEMA}")
                 
+=======
+                    database=settings.SNOWFLAKE_DATABASE,
+                    schema=settings.SNOWFLAKE_SCHEMA,
+                    warehouse=settings.SNOWFLAKE_WAREHOUSE
+                )
+                logger.info("✅ Snowflake connection established")
+>>>>>>> ec73de78e635ef53c47ab1b2eabab2c2397eb514
             except Exception as e:
                 logger.error(f"❌ Failed to connect to Snowflake: {e}")
                 raise
@@ -112,7 +120,11 @@ async def init_database():
     logger.info("Initializing Snowflake database schema...")
     
     try:
+<<<<<<< HEAD
         # Create tables (database and schema already set in get_connection)
+=======
+        # Create tables
+>>>>>>> ec73de78e635ef53c47ab1b2eabab2c2397eb514
         create_users_table()
         create_repositories_table()
         create_commits_table()
@@ -177,19 +189,31 @@ def create_commits_table():
         author_email VARCHAR(255),
         commit_date TIMESTAMP_NTZ,
         html_url VARCHAR(1024),
+<<<<<<< HEAD
         files_changed VARIANT,
+=======
+        files_changed ARRAY,
+>>>>>>> ec73de78e635ef53c47ab1b2eabab2c2397eb514
         additions INT DEFAULT 0,
         deletions INT DEFAULT 0,
         analysis_status VARCHAR(50) DEFAULT 'pending',
         ai_summary TEXT,
+<<<<<<< HEAD
         embedding VECTOR(FLOAT, 768),
+=======
+        embedding VECTOR(FLOAT, 384),
+>>>>>>> ec73de78e635ef53c47ab1b2eabab2c2397eb514
         created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
         FOREIGN KEY (repo_id) REFERENCES repositories(id),
         UNIQUE (repo_id, sha)
     )
     """
     snowflake_service.execute_query(query, fetch=False)
+<<<<<<< HEAD
     logger.info("✅ Commits table created/verified with VECTOR(768) support")
+=======
+    logger.info("✅ Commits table created/verified with VECTOR support")
+>>>>>>> ec73de78e635ef53c47ab1b2eabab2c2397eb514
 
 
 def create_pr_analysis_table():
@@ -205,7 +229,11 @@ def create_pr_analysis_table():
         merged BOOLEAN DEFAULT FALSE,
         merge_date TIMESTAMP_NTZ,
         commits_count INT DEFAULT 0,
+<<<<<<< HEAD
         files_changed VARIANT,
+=======
+        files_changed ARRAY,
+>>>>>>> ec73de78e635ef53c47ab1b2eabab2c2397eb514
         additions INT DEFAULT 0,
         deletions INT DEFAULT 0,
         ai_summary TEXT,
