@@ -22,12 +22,6 @@ from app.security.auth import get_current_user
 from app.database.snowflake_crud import get_repository_by_id, get_repository_commits
 from app.services.snowflake_service import snowflake_service
 from app.services.query_parser import parse_query, build_temporal_sql_filters, get_temporal_limit
-from app.services.query_optimizer import (
-    get_cached_embedding_result,
-    cache_embedding_result,
-    get_optimized_search_query,
-    update_query_stats
-)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -367,34 +361,21 @@ async def handle_semantic_query(repo_id: str, repository: dict, question: str, r
     import json
     
     # STEP 1: Generate embedding for question using Cortex
-    # Check cache first
-    embed_cache_key = f"embed:{question}"
-    cached_embedding = get_cached_embedding_result(embed_cache_key, (repo_id,))
+    question_embed_query = """
+    SELECT SNOWFLAKE.CORTEX.EMBED_TEXT_768('e5-base-v2', %s) as embedding
+    """
+    embed_result = snowflake_service.execute_query(
+        question_embed_query,
+        params=(question,),
+        fetch=True
+    )
     
-    if cached_embedding:
-        question_embedding = cached_embedding
-        update_query_stats(cache_hit=True)
-        logger.info("✅ Using cached question embedding")
-    else:
-        update_query_stats(cache_hit=False)
-        question_embed_query = """
-        SELECT SNOWFLAKE.CORTEX.EMBED_TEXT_768('e5-base-v2', %s) as embedding
-        """
-        embed_result = snowflake_service.execute_query(
-            question_embed_query,
-            params=(question,),
-            fetch=True
-        )
-        
-        if not embed_result:
-            raise HTTPException(status_code=500, detail="Failed to generate question embedding")
-        
-        question_embedding = embed_result[0]["EMBEDDING"]
-        # Cache for future identical queries
-        cache_embedding_result(embed_cache_key, (repo_id,), question_embedding, ttl=600)
-        logger.info("✅ Generated and cached question embedding")
+    if not embed_result:
+        raise HTTPException(status_code=500, detail="Failed to generate question embedding")
     
-    # STEP 2: Vector similarity search with optimizations
+    question_embedding = embed_result[0]["EMBEDDING"]
+    
+    # STEP 2: Vector similarity search
     search_query = """
     SELECT 
         id,
@@ -409,7 +390,6 @@ async def handle_semantic_query(repo_id: str, repository: dict, question: str, r
     FROM commits_analysis
     WHERE repo_id = %s
       AND embedding IS NOT NULL
-      AND ai_summary IS NOT NULL  -- Prefer commits with AI summaries
     ORDER BY similarity DESC
     LIMIT %s
     """
