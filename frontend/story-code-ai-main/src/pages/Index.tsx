@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
 import {
   GitCommit,
@@ -220,6 +220,9 @@ const Index = () => {
   const [commitDetails, setCommitDetails] = useState<any>(null);
   const [loadingCommitDetails, setLoadingCommitDetails] = useState(false);
 
+  const nodesContainerRef = useRef<HTMLDivElement | null>(null);
+  const [timelineLeft, setTimelineLeft] = useState<number | null>(null);
+
   const [activeSection, setActiveSection] = useState("1");
   const [expandedSections, setExpandedSections] = useState<string[]>(["1"]);
   const [userQuestion, setUserQuestion] = useState(
@@ -231,6 +234,36 @@ const Index = () => {
 
   const repoId = sessionStorage.getItem("analysis_id") || "";
   console.log("📊 Using repo ID:", repoId);
+
+  useLayoutEffect(() => {
+  const measure = () => {
+    const container = nodesContainerRef.current;
+    if (!container) return setTimelineLeft(null);
+
+    // Measure the first circle (or you can switch to selected one later)
+    const el = container.querySelector(".timeline-circle") as HTMLElement | null;
+    if (!el) return setTimelineLeft(null);
+
+    const parentRect = container.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+
+    // center of circle relative to container
+    const left = rect.left - parentRect.left + rect.width / 2;
+    setTimelineLeft(left);
+  };
+
+  measure();
+
+  // If fonts/layout cause late shifts, this helps
+  const raf = requestAnimationFrame(measure);
+
+  window.addEventListener("resize", measure);
+  return () => {
+    cancelAnimationFrame(raf);
+    window.removeEventListener("resize", measure);
+  };
+}, [selectedCommitNode, commitNodesState.length]);
+
 
   // Load initial question from sessionStorage if available
   useEffect(() => {
@@ -494,14 +527,17 @@ const Index = () => {
               selectedCommitNode ? "p-4" : "p-6"
             )}
           >
-            <div className="relative">
+            <div className="relative" ref={nodesContainerRef}>
               {/* Timeline line - gradient based on commit relevance - centered through circles */}
               <div
-                className="absolute top-6 bottom-6 w-0.5 bg-gradient-to-b from-green-500 via-yellow-500 to-gray-400"
-                style={{
-                  left: selectedCommitNode ? 'calc(1rem + 1.5rem)' : 'calc(1.5rem + 2.5rem)'
-                }}
-              />
+  className="absolute top-6 bottom-6 w-0.5 bg-gradient-to-b from-green-500 via-yellow-500 to-gray-400"
+  style={
+    timelineLeft !== null
+      ? { left: `${timelineLeft}px`, transform: "translateX(-50%)" }
+      : undefined
+  }
+/>
+
 
               {/* Graph nodes */}
               <div
@@ -525,6 +561,7 @@ const Index = () => {
                     <div
                       className={cn(
                         "relative z-10 rounded-full border-4 flex items-center justify-center flex-shrink-0 transition-all",
+                        "timeline-circle",
                         selectedCommitNode ? "w-12 h-12" : "w-16 h-16",
                         node.relevance === "high" &&
                           "border-green-500 bg-green-500/20 shadow-green-500/50 shadow-lg",
