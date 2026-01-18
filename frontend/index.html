@@ -471,6 +471,7 @@
                 <button onclick="analyzeCurrentRepo()">Start Analysis</button>
                 <button onclick="fetchCommits(1)" class="btn-small">Fetch Commits (Page 1)</button>
                 <button onclick="viewCommits()" class="btn-small">View Stored Commits</button>
+                <button onclick="enhanceAllCommits()" class="btn-small" style="background: #10b981;">✨ AI Enhance All</button>
                 <button onclick="closeRepoDetails()" class="btn-small btn-danger">Close</button>
             </div>
             
@@ -585,8 +586,19 @@
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to load repositories');
+                }
+                
                 const data = await response.json();
+                
+                if (!data.repositories || !Array.isArray(data.repositories)) {
+                    throw new Error('Invalid repository data received');
+                }
+                
                 displayRepositories(data.repositories);
+                document.getElementById('errorSection').classList.add('hidden');
             } catch (error) {
                 showError('Failed to load repositories: ' + error.message);
             }
@@ -594,6 +606,12 @@
         
         function displayRepositories(repos) {
             const list = document.getElementById('reposList');
+            
+            if (!repos || repos.length === 0) {
+                list.innerHTML = '<p style="text-align: center; color: #6b7280; padding: 40px;">No repositories found</p>';
+                return;
+            }
+            
             list.innerHTML = repos.map(repo => `
                 <div class="repo-card" onclick='selectRepo(${JSON.stringify(repo)})'>
                     <div class="repo-name">${repo.full_name}</div>
@@ -739,8 +757,18 @@
                 <h3 style="margin-top: 24px;">Commits (${pagination.total} total, showing ${pagination.returned})</h3>
                 ${commits.map(commit => `
                     <div class="commit-item" onclick='viewCommitDetails("${commit.sha}")'>
-                        <div class="commit-sha">${commit.sha_short} <span class="status-badge status-${commit.analysis_status}">${commit.analysis_status}</span></div>
+                        <div class="commit-sha">
+                            ${commit.sha_short} 
+                            <span class="status-badge status-${commit.analysis_status}">${commit.analysis_status}</span>
+                            ${commit.has_ai_summary ? '<span style="margin-left: 4px; font-size: 16px;" title="AI Enhanced">✨</span>' : ''}
+                        </div>
                         <div class="commit-message">${escapeHtml(commit.message)}</div>
+                        ${commit.ai_summary ? `
+                            <div style="background: #f0fdf4; border-left: 3px solid #10b981; padding: 8px 12px; margin: 8px 0; border-radius: 4px;">
+                                <div style="font-size: 11px; font-weight: 600; color: #065f46; margin-bottom: 4px;">🤖 AI-ENHANCED MESSAGE</div>
+                                <div style="color: #1f2937; font-size: 13px; line-height: 1.4;">${escapeHtml(commit.ai_summary)}</div>
+                            </div>
+                        ` : ''}
                         <div class="commit-meta">
                             ${escapeHtml(commit.author_name)} • ${new Date(commit.commit_date).toLocaleString()} • 
                             ${commit.files_changed_count} files • +${commit.additions} -${commit.deletions}
@@ -787,6 +815,15 @@
                         ${new Date(commit.commit_date).toLocaleString()} • 
                         <a href="${commit.html_url}" target="_blank" style="color: #667eea;">View on GitHub ↗</a>
                     </div>
+                    <div style="margin-top: 16px;">
+                        <button onclick="enhanceThisCommit('${commit.sha}')" style="background: #10b981; padding: 8px 16px; border: none; border-radius: 6px; color: white; cursor: pointer; font-weight: 600;">
+                            ✨ Generate AI-Enhanced Message
+                        </button>
+                    </div>
+                    <div id="aiEnhancedSection" style="display: none; margin-top: 16px; padding: 16px; background: #f0fdf4; border-left: 4px solid #10b981; border-radius: 8px;">
+                        <h4 style="margin: 0 0 8px 0; color: #065f46;">🤖 AI-Enhanced Message</h4>
+                        <pre id="aiEnhancedMessage" style="white-space: pre-wrap; font-family: 'Courier New', monospace; color: #1f2937; margin: 0;"></pre>
+                    </div>
                 </div>
                 
                 <div class="stats-summary">
@@ -830,6 +867,71 @@
                     </div>
                 `).join('')}
             `;
+        }
+        
+        async function enhanceThisCommit(sha) {
+            if (!currentRepo.analysis_id) return;
+            
+            try {
+                const button = event.target;
+                button.disabled = true;
+                button.textContent = '⏳ Generating...';
+                
+                const response = await fetch(
+                    `${API_BASE}/api/repositories/${currentRepo.analysis_id}/commits/${sha}/enhance`,
+                    {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    }
+                );
+                
+                if (!response.ok) throw new Error('Failed to enhance commit');
+                
+                const data = await response.json();
+                
+                // Show AI-enhanced message
+                document.getElementById('aiEnhancedSection').style.display = 'block';
+                document.getElementById('aiEnhancedMessage').textContent = data.ai_enhanced_message;
+                
+                button.textContent = '✅ Enhanced!';
+                button.style.background = '#059669';
+            } catch (error) {
+                alert('Failed to enhance commit: ' + error.message);
+                event.target.disabled = false;
+                event.target.textContent = '✨ Generate AI-Enhanced Message';
+            }
+        }
+        
+        async function enhanceAllCommits() {
+            if (!currentRepo.analysis_id) {
+                showError('Please analyze the repository first');
+                return;
+            }
+            
+            if (!confirm('Generate AI-enhanced messages for pending commits? This may take a minute.')) {
+                return;
+            }
+            
+            try {
+                showLoading('Generating AI-enhanced messages...');
+                const response = await fetch(
+                    `${API_BASE}/api/repositories/${currentRepo.analysis_id}/commits/batch-enhance?limit=10`,
+                    {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    }
+                );
+                
+                if (!response.ok) throw new Error('Failed to enhance commits');
+                
+                const data = await response.json();
+                showSuccess(`✨ Enhanced ${data.successful} commits! (${data.failed} failed)`);
+                
+                // Refresh commit list
+                await viewCommits();
+            } catch (error) {
+                showError('Failed to enhance commits: ' + error.message);
+            }
         }
         
         function formatDiff(patch) {
