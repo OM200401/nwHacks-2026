@@ -21,8 +21,7 @@ from app.database.snowflake_crud import (
     update_repository_status,
     create_commit,
     get_repository_commits,
-    get_commits_count,
-    commits_db
+    get_commits_count
 )
 from app.security.encryption import retrieve_github_token
 
@@ -779,11 +778,11 @@ async def enhance_commit_message(
         ai_message = polished_commits[0]["ai_message"]
         
         # Update commit record in database with AI summary
-        for commit_id, commit in commits_db.items():
-            if commit["sha"] == commit_details["sha"] and commit["repo_id"] == repo_id:
-                commit["ai_summary"] = ai_message.strip()
-                commit["analysis_status"] = "analyzed"
-                break
+        from app.database.snowflake_crud import get_commit_by_sha, update_commit_ai_summary
+        
+        commit_record = await get_commit_by_sha(repo_id, commit_details["sha"])
+        if commit_record:
+            await update_commit_ai_summary(commit_record["id"], ai_message.strip())
         
         return {
             "original_message": commit_details["message"],
