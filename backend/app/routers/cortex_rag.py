@@ -21,6 +21,7 @@ import logging
 from app.security.auth import get_current_user
 from app.database.snowflake_crud import get_repository_by_id, get_repository_commits
 from app.services.snowflake_service import snowflake_service
+from app.services.query_parser import parse_query, build_temporal_sql_filters, get_temporal_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -227,133 +228,22 @@ async def query_with_cortex(
         
         logger.info(f"RAG query: {request.question[:100]}")
         
-        # STEP 1: Generate embedding for question using Cortex
-        question_embed_query = """
-        SELECT SNOWFLAKE.CORTEX.EMBED_TEXT_768('e5-base-v2', %s) as embedding
-        """
-        embed_result = snowflake_service.execute_query(
-            question_embed_query,
-            params=(request.question,),
-            fetch=True
-        )
+        # STEP 0: Parse query to determine type and extract filters
+        parsed_query = parse_query(request.question)
+        query_type = parsed_query["query_type"]
         
-        if not embed_result:
-            raise HTTPException(status_code=500, detail="Failed to generate question embedding")
+        logger.info(f"Query type: {query_type}")
         
-        question_embedding = embed_result[0]["EMBEDDING"]
-        
-        # STEP 2: Vector similarity search
-        # Note: We pass the embedding as a string representation for Snowflake
-        search_query = f"""
-        SELECT 
-            id,
-            sha,
-            message,
-            ai_summary,
-            author_name,
-            commit_date,
-            html_url,
-            files_changed,
-            VECTOR_COSINE_SIMILARITY(embedding, PARSE_JSON(%s)::VECTOR(FLOAT, 768)) as similarity
-        FROM commits_analysis
-        WHERE repo_id = %s
-          AND embedding IS NOT NULL
-        ORDER BY similarity DESC
-        LIMIT %s
-        """
-        
-        # Convert embedding to JSON string for Snowflake
-        import json
-        embedding_str = json.dumps(question_embedding)
-        
-        similar_commits = snowflake_service.execute_query(
-            search_query,
-            params=(embedding_str, repo_id, request.top_k),
-            fetch=True
-        )
-        
-        if not similar_commits:
-            return {
-                "answer": "No relevant commits found. Make sure embeddings are generated first.",
-                "sources": [],
-                "question": request.question
-            }
-        
-        # STEP 3: Build context from similar commits
-        # Prioritize AI summaries (code analysis) over commit messages
-        context_parts = []
-        sources = []
-        
-        for i, commit in enumerate(similar_commits):
-            context = f"Commit {i+1} (SHA: {commit['SHA'][:7]}):\n"
-            
-            # Use AI summary if available (more detailed), otherwise fallback to message
-            if commit.get('AI_SUMMARY'):
-                context += f"Analysis: {commit['AI_SUMMARY']}\n"
-                context += f"Original Message: {commit['MESSAGE']}\n"
-            else:
-                context += f"Message: {commit['MESSAGE']}\n"
-            
-            if commit.get('FILES_CHANGED'):
-                try:
-                    files = json.loads(commit['FILES_CHANGED']) if isinstance(commit['FILES_CHANGED'], str) else commit['FILES_CHANGED']
-                    files_str = ', '.join(files[:5])
-                    context += f"Files: {files_str}\n"
-                except:
-                    pass
-            
-            context += f"Similarity: {commit['SIMILARITY']:.2f}\n"
-            context_parts.append(context)
-            
-            sources.append({
-                "sha": commit["SHA"],
-                "message": commit["MESSAGE"],
-                "ai_summary": commit.get("AI_SUMMARY"),
-                "html_url": commit.get("HTML_URL"),
-                "similarity": commit["SIMILARITY"]
-            })
-        
-        combined_context = "\n\n".join(context_parts)
-        
-        # STEP 4: Generate answer using Snowflake Cortex LLM
-        rag_prompt = f"""You are analyzing commit history for: {repository['full_name']}
-
-Relevant Commits:
-{combined_context}
-
-User Question: {request.question}
-
-Instructions:
-- Answer based ONLY on the commits above
-- Cite specific commits by SHA
-- Be concise and technical
-- If commits don't fully answer, say so
-
-Answer:"""
-        
-        llm_query = """
-        SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s) as answer
-        """
-        
-        answer_result = snowflake_service.execute_query(
-            llm_query,
-            params=(request.model, rag_prompt),
-            fetch=True
-        )
-        
-        if not answer_result:
-            raise HTTPException(status_code=500, detail="Failed to generate answer")
-        
-        ai_answer = answer_result[0]["ANSWER"]
-        
-        return {
-            "answer": ai_answer,
-            "sources": sources,
-            "question": request.question,
-            "repository": repository["full_name"],
-            "model": request.model,
-            "commits_analyzed": len(similar_commits)
-        }
+        # STEP 1: Handle based on query type
+        if query_type == "temporal":
+            # Pure temporal query - no vector search needed
+            return await handle_temporal_query(repo_id, repository, parsed_query, request)
+        elif query_type == "semantic":
+            # Pure semantic query - current RAG flow
+            return await handle_semantic_query(repo_id, repository, request.question, request)
+        else:  # hybrid
+            # Combine filters + vector search
+            return await handle_hybrid_query(repo_id, repository, parsed_query, request)
         
     except HTTPException:
         raise
@@ -362,8 +252,356 @@ Answer:"""
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def handle_temporal_query(repo_id: str, repository: dict, parsed_query: dict, request: QueryRequest):
+    """Handle pure temporal queries (no semantic search)"""
+    import json
+    
+    # Build WHERE clause from filters
+    where_clause, params = build_temporal_sql_filters(parsed_query)
+    
+    # Get limit
+    limit = get_temporal_limit(parsed_query) or request.top_k
+    
+    # Build query - ORDER BY date for temporal queries
+    query_parts = [
+        "SELECT id, sha, message, ai_summary, author_name, commit_date, html_url, files_changed",
+        "FROM commits_analysis",
+        f"WHERE repo_id = %s"
+    ]
+    query_params = [repo_id]
+    
+    if where_clause:
+        query_parts.append(f"AND {where_clause}")
+        query_params.extend(params)
+    
+    query_parts.append("ORDER BY commit_date DESC")
+    query_parts.append(f"LIMIT {limit}")
+    
+    query = " ".join(query_parts)
+    
+    commits = snowflake_service.execute_query(query, params=tuple(query_params), fetch=True)
+    
+    if not commits:
+        return {
+            "answer": "No commits found matching the temporal filters.",
+            "sources": [],
+            "question": request.question,
+            "query_type": "temporal"
+        }
+    
+    # Build context for LLM
+    context_parts = []
+    sources = []
+    
+    for i, commit in enumerate(commits):
+        context = f"Commit {i+1} (SHA: {commit['SHA'][:7]}):\n"
+        
+        if commit.get('AI_SUMMARY'):
+            context += f"Analysis: {commit['AI_SUMMARY']}\n"
+            context += f"Original Message: {commit['MESSAGE']}\n"
+        else:
+            context += f"Message: {commit['MESSAGE']}\n"
+        
+        if commit.get('FILES_CHANGED'):
+            try:
+                files = json.loads(commit['FILES_CHANGED']) if isinstance(commit['FILES_CHANGED'], str) else commit['FILES_CHANGED']
+                files_str = ', '.join(files[:5])
+                context += f"Files: {files_str}\n"
+            except:
+                pass
+        
+        context += f"Date: {commit['COMMIT_DATE']}\n"
+        context_parts.append(context)
+        
+        sources.append({
+            "sha": commit["SHA"],
+            "message": commit["MESSAGE"],
+            "ai_summary": commit.get("AI_SUMMARY"),
+            "html_url": commit.get("HTML_URL"),
+            "commit_date": str(commit["COMMIT_DATE"])
+        })
+    
+    combined_context = "\n\n".join(context_parts)
+    
+    # Generate answer using Snowflake Cortex LLM
+    rag_prompt = f"""You are analyzing commit history for: {repository['full_name']}
+
+Commits (ordered by date):
+{combined_context}
+
+User Question: {request.question}
+
+Instructions:
+- Answer based ONLY on the commits above
+- Cite specific commits by SHA
+- Be concise and technical
+- The commits are already filtered and sorted by date
+
+Answer:"""
+
+    llm_query = "SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s) as answer"
+    answer_result = snowflake_service.execute_query(llm_query, params=(request.model, rag_prompt), fetch=True)
+    
+    if not answer_result:
+        raise HTTPException(status_code=500, detail="Failed to generate answer")
+    
+    return {
+        "answer": answer_result[0]["ANSWER"],
+        "sources": sources,
+        "question": request.question,
+        "repository": repository["full_name"],
+        "model": request.model,
+        "query_type": "temporal",
+        "commits_analyzed": len(commits)
+    }
+
+
+async def handle_semantic_query(repo_id: str, repository: dict, question: str, request: QueryRequest):
+    """Handle pure semantic queries (current RAG flow)"""
+    import json
+    
+    # STEP 1: Generate embedding for question using Cortex
+    question_embed_query = """
+    SELECT SNOWFLAKE.CORTEX.EMBED_TEXT_768('e5-base-v2', %s) as embedding
+    """
+    embed_result = snowflake_service.execute_query(
+        question_embed_query,
+        params=(question,),
+        fetch=True
+    )
+    
+    if not embed_result:
+        raise HTTPException(status_code=500, detail="Failed to generate question embedding")
+    
+    question_embedding = embed_result[0]["EMBEDDING"]
+    
+    # STEP 2: Vector similarity search
+    search_query = """
+    SELECT 
+        id,
+        sha,
+        message,
+        ai_summary,
+        author_name,
+        commit_date,
+        html_url,
+        files_changed,
+        VECTOR_COSINE_SIMILARITY(embedding, PARSE_JSON(%s)::VECTOR(FLOAT, 768)) as similarity
+    FROM commits_analysis
+    WHERE repo_id = %s
+      AND embedding IS NOT NULL
+    ORDER BY similarity DESC
+    LIMIT %s
+    """
+    
+    # Convert embedding to JSON string for Snowflake
+    embedding_str = json.dumps(question_embedding)
+    
+    similar_commits = snowflake_service.execute_query(
+        search_query,
+        params=(embedding_str, repo_id, request.top_k),
+        fetch=True
+    )
+    
+    if not similar_commits:
+        return {
+            "answer": "No relevant commits found. Make sure embeddings are generated first.",
+                "sources": [],
+            "sources": [],
+            "question": request.question,
+            "query_type": "semantic"
+        }
+    
+    # STEP 3: Build context from similar commits
+    context_parts = []
+    sources = []
+    
+    for i, commit in enumerate(similar_commits):
+        context = f"Commit {i+1} (SHA: {commit['SHA'][:7]}):\n"
+        
+        if commit.get('AI_SUMMARY'):
+            context += f"Analysis: {commit['AI_SUMMARY']}\n"
+            context += f"Original Message: {commit['MESSAGE']}\n"
+        else:
+            context += f"Message: {commit['MESSAGE']}\n"
+        
+        if commit.get('FILES_CHANGED'):
+            try:
+                files = json.loads(commit['FILES_CHANGED']) if isinstance(commit['FILES_CHANGED'], str) else commit['FILES_CHANGED']
+                files_str = ', '.join(files[:5])
+                context += f"Files: {files_str}\n"
+            except:
+                pass
+        
+        context += f"Similarity: {commit['SIMILARITY']:.2f}\n"
+        context_parts.append(context)
+        
+        sources.append({
+            "sha": commit["SHA"],
+            "message": commit["MESSAGE"],
+            "ai_summary": commit.get("AI_SUMMARY"),
+            "html_url": commit.get("HTML_URL"),
+            "similarity": commit["SIMILARITY"]
+        })
+    
+    combined_context = "\n\n".join(context_parts)
+    
+    # STEP 4: Generate answer using Snowflake Cortex LLM
+    rag_prompt = f"""You are analyzing commit history for: {repository['full_name']}
+
+Relevant Commits:
+{combined_context}
+
+User Question: {question}
+
+Instructions:
+- Answer based ONLY on the commits above
+- Cite specific commits by SHA
+- Be concise and technical
+- If commits don't fully answer, say so
+
+Answer:"""
+    
+    llm_query = "SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s) as answer"
+    answer_result = snowflake_service.execute_query(llm_query, params=(request.model, rag_prompt), fetch=True)
+    
+    if not answer_result:
+        raise HTTPException(status_code=500, detail="Failed to generate answer")
+    
+    return {
+        "answer": answer_result[0]["ANSWER"],
+        "sources": sources,
+        "question": question,
+        "repository": repository["full_name"],
+        "model": request.model,
+        "query_type": "semantic",
+        "commits_analyzed": len(similar_commits)
+    }
+
+
+async def handle_hybrid_query(repo_id: str, repository: dict, parsed_query: dict, request: QueryRequest):
+    """Handle hybrid queries (filters + semantic search)"""
+    import json
+    
+    # Build WHERE clause from filters
+    filter_clause, filter_params = build_temporal_sql_filters(parsed_query)
+    
+    # Get semantic query text
+    semantic_query = parsed_query.get("semantic_query") or request.question
+    
+    # Generate embedding for semantic part
+    question_embed_query = "SELECT SNOWFLAKE.CORTEX.EMBED_TEXT_768('e5-base-v2', %s) as embedding"
+    embed_result = snowflake_service.execute_query(question_embed_query, params=(semantic_query,), fetch=True)
+    
+    if not embed_result:
+        raise HTTPException(status_code=500, detail="Failed to generate question embedding")
+    
+    question_embedding = embed_result[0]["EMBEDDING"]
+    embedding_str = json.dumps(question_embedding)
+    
+    # Build hybrid query - filters + vector search
+    query_parts = [
+        """SELECT 
+            id, sha, message, ai_summary, author_name, commit_date, html_url, files_changed,
+            VECTOR_COSINE_SIMILARITY(embedding, PARSE_JSON(%s)::VECTOR(FLOAT, 768)) as similarity
+        FROM commits_analysis
+        WHERE repo_id = %s
+          AND embedding IS NOT NULL"""
+    ]
+    query_params = [embedding_str, repo_id]
+    
+    if filter_clause:
+        query_parts.append(f"AND {filter_clause}")
+        query_params.extend(filter_params)
+    
+    # Get limit
+    limit = get_temporal_limit(parsed_query) or request.top_k
+    query_parts.append(f"ORDER BY similarity DESC LIMIT {limit}")
+    
+    query = " ".join(query_parts)
+    
+    similar_commits = snowflake_service.execute_query(query, params=tuple(query_params), fetch=True)
+    
+    if not similar_commits:
+        return {
+            "answer": "No commits found matching the filters and semantic query.",
+            "sources": [],
+            "question": request.question,
+            "query_type": "hybrid"
+        }
+    
+    # Build context
+    context_parts = []
+    sources = []
+    
+    for i, commit in enumerate(similar_commits):
+        context = f"Commit {i+1} (SHA: {commit['SHA'][:7]}):\n"
+        
+        if commit.get('AI_SUMMARY'):
+            context += f"Analysis: {commit['AI_SUMMARY']}\n"
+            context += f"Original Message: {commit['MESSAGE']}\n"
+        else:
+            context += f"Message: {commit['MESSAGE']}\n"
+        
+        if commit.get('FILES_CHANGED'):
+            try:
+                files = json.loads(commit['FILES_CHANGED']) if isinstance(commit['FILES_CHANGED'], str) else commit['FILES_CHANGED']
+                files_str = ', '.join(files[:5])
+                context += f"Files: {files_str}\n"
+            except:
+                pass
+        
+        context += f"Date: {commit['COMMIT_DATE']}\n"
+        context += f"Similarity: {commit['SIMILARITY']:.2f}\n"
+        context_parts.append(context)
+        
+        sources.append({
+            "sha": commit["SHA"],
+            "message": commit["MESSAGE"],
+            "ai_summary": commit.get("AI_SUMMARY"),
+            "html_url": commit.get("HTML_URL"),
+            "commit_date": str(commit["COMMIT_DATE"]),
+            "similarity": commit["SIMILARITY"]
+        })
+    
+    combined_context = "\n\n".join(context_parts)
+    
+    # Generate answer
+    rag_prompt = f"""You are analyzing commit history for: {repository['full_name']}
+
+Relevant Commits (filtered and semantically matched):
+{combined_context}
+
+User Question: {request.question}
+
+Instructions:
+- Answer based ONLY on the commits above
+- Cite specific commits by SHA
+- Be concise and technical
+- Note that commits are filtered by time/author AND semantic relevance
+
+Answer:"""
+    
+    llm_query = "SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, %s) as answer"
+    answer_result = snowflake_service.execute_query(llm_query, params=(request.model, rag_prompt), fetch=True)
+    
+    if not answer_result:
+        raise HTTPException(status_code=500, detail="Failed to generate answer")
+    
+    return {
+        "answer": answer_result[0]["ANSWER"],
+        "sources": sources,
+        "question": request.question,
+        "repository": repository["full_name"],
+        "model": request.model,
+        "query_type": "hybrid",
+        "filters_applied": parsed_query,
+        "commits_analyzed": len(similar_commits)
+    }
+
+
 # ============================================================================
-# STEP 3: Simple Embedding Status Check
+# STEP 3: Embedding Status
 # ============================================================================
 
 @router.get("/repositories/{repo_id}/embedding-status")
