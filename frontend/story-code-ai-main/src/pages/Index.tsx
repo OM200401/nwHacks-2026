@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ExplanationPanel } from "@/components/ExplanationPanel";
 import { useNavigate } from "react-router-dom";
+import { fetchCommitDetails } from "@/lib/api";
 
 // Mock commit data
 const currentCommit = {
@@ -301,6 +302,8 @@ const Index = () => {
     null
   );
   const [commitNodesState, setCommitNodesState] = useState<CommitNode[]>([]);
+  const [commitDetails, setCommitDetails] = useState<any>(null);
+  const [loadingCommitDetails, setLoadingCommitDetails] = useState(false);
 
   const [activeSection, setActiveSection] = useState("1");
   const [expandedSections, setExpandedSections] = useState<string[]>(["1"]);
@@ -409,12 +412,29 @@ const Index = () => {
     : commitNodesState[0];
 
   const handleNodeClick = useCallback(
-    (nodeId: string) => {
+    async (nodeId: string) => {
       if (selectedCommitNode === nodeId) {
         // Clicking same node closes the panel
         setSelectedCommitNode(null);
+        setCommitDetails(null);
       } else {
         setSelectedCommitNode(nodeId);
+        
+        // Fetch commit details from API
+        const token = localStorage.getItem("access_token");
+        if (token && repoId) {
+          setLoadingCommitDetails(true);
+          try {
+            const data = await fetchCommitDetails(repoId, nodeId, token);
+            console.log("📄 Commit details:", data);
+            setCommitDetails(data.commit);
+          } catch (error) {
+            console.error("Failed to fetch commit details:", error);
+          } finally {
+            setLoadingCommitDetails(false);
+          }
+        }
+        
         const node = commitNodesState.find((n) => n.id === nodeId);
         if (node && node.linkedSections.length > 0) {
           setExpandedSections(node.linkedSections);
@@ -422,7 +442,7 @@ const Index = () => {
         }
       }
     },
-    [selectedCommitNode, commitNodesState]
+    [selectedCommitNode, commitNodesState, repoId]
   );
 
   const handleCloseDetails = useCallback(() => {
@@ -684,10 +704,10 @@ const Index = () => {
               <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-primary/5">
                 <FileCode className="w-4 h-4 text-primary" />
                 <span className="text-sm font-medium text-foreground">
-                  Code Details
+                  Files Changed
                 </span>
                 <span className="text-xs text-muted-foreground ml-1">
-                  {relevantSections.length} sections
+                  {commitDetails?.files_changed?.length || 0} files
                 </span>
                 <button
                   onClick={handleCloseDetails}
@@ -699,132 +719,105 @@ const Index = () => {
 
               {/* Details Content */}
               <div className="flex-1 overflow-auto p-3 space-y-3 animate-fade-in">
-                {relevantSections.map((section) => {
-                  const isExpanded = expandedSections.includes(section.id);
-                  return (
-                    <div
-                      key={section.id}
-                      className={cn(
-                        "rounded-lg border overflow-hidden transition-all duration-200",
-                        activeSection === section.id
-                          ? "border-primary/50 bg-primary/5 shadow-sm"
-                          : "border-border bg-card/50 hover:border-muted-foreground/30"
-                      )}
-                    >
-                      {/* Section header */}
-                      <button
-                        onClick={() => {
-                          setActiveSection(section.id);
-                          setExpandedSections((prev) =>
-                            prev.includes(section.id)
-                              ? prev.filter((id) => id !== section.id)
-                              : [...prev, section.id]
-                          );
-                        }}
-                        className="w-full px-3 py-2.5 flex items-center justify-between text-left hover:bg-muted/30 transition-colors"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div
-                            className={cn(
-                              "w-2 h-2 rounded-full flex-shrink-0",
-                              section.relevance === "high" && "bg-green-500",
-                              section.relevance === "medium" && "bg-yellow-500",
-                              section.relevance === "low" &&
-                                "bg-muted-foreground"
-                            )}
-                          />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 text-sm">
-                              <FileCode className="w-4 h-4 text-primary flex-shrink-0" />
-                              <span className="font-medium text-foreground truncate">
-                                {section.file}
-                              </span>
-                              <code className="text-xs font-mono text-primary truncate">
-                                {section.functionName}
-                              </code>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className="text-xs text-muted-foreground">
-                            L{section.lineStart}-{section.lineEnd}
-                          </span>
-                          <ChevronDown
-                            className={cn(
-                              "w-3.5 h-3.5 text-muted-foreground transition-transform duration-200",
-                              isExpanded && "rotate-180"
-                            )}
-                          />
-                        </div>
-                      </button>
-
-                      {/* Code snippet with animation */}
+                {loadingCommitDetails ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <div className="animate-pulse">Loading commit details...</div>
+                  </div>
+                ) : commitDetails?.files_changed ? (
+                  commitDetails.files_changed.map((file: any, idx: number) => {
+                    const isExpanded = expandedSections.includes(String(idx));
+                    return (
                       <div
+                        key={idx}
                         className={cn(
-                          "overflow-hidden transition-all duration-200",
-                          isExpanded
-                            ? "max-h-[400px] opacity-100"
-                            : "max-h-0 opacity-0"
+                          "rounded-lg border overflow-hidden transition-all duration-200",
+                          activeSection === String(idx)
+                            ? "border-primary/50 bg-primary/5 shadow-sm"
+                            : "border-border bg-card/50 hover:border-muted-foreground/30"
                         )}
                       >
-                        <div className="border-t border-border bg-code-bg">
-                          <div className="px-3 py-1.5 border-b border-border bg-muted/20">
-                            <span className="text-xs font-mono text-muted-foreground">
-                              {section.path}/{section.file}
-                            </span>
-                          </div>
-                          <pre className="p-3 text-sm font-mono overflow-x-auto max-h-[300px] overflow-y-auto">
-                            {section.lines.map((line, i) => (
-                              <div
-                                key={i}
-                                className={cn(
-                                  "flex px-1.5 -mx-1.5 relative",
-                                  line.type === "addition" && "bg-green-500/10",
-                                  line.type === "deletion" && "bg-red-500/10",
-                                  line.relevant &&
-                                    "ring-1 ring-inset ring-primary/40 bg-primary/5"
-                                )}
-                              >
-                                {line.relevant && (
-                                  <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary" />
-                                )}
-                                <span className="w-8 text-muted-foreground/50 text-right pr-3 select-none flex-shrink-0">
-                                  {line.line}
+                        {/* File header */}
+                        <button
+                          onClick={() => {
+                            setActiveSection(String(idx));
+                            setExpandedSections((prev) =>
+                              prev.includes(String(idx))
+                                ? prev.filter((id) => id !== String(idx))
+                                : [...prev, String(idx)]
+                            );
+                          }}
+                          className="w-full px-3 py-2.5 flex items-center justify-between text-left hover:bg-muted/30 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div
+                              className={cn(
+                                "w-2 h-2 rounded-full flex-shrink-0",
+                                file.status === "added" && "bg-green-500",
+                                file.status === "modified" && "bg-yellow-500",
+                                file.status === "removed" && "bg-red-500"
+                              )}
+                            />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 text-sm">
+                                <FileCode className="w-4 h-4 text-primary flex-shrink-0" />
+                                <span className="font-medium text-foreground truncate">
+                                  {file.filename}
                                 </span>
-                                <span
-                                  className={cn(
-                                    "w-2.5 flex-shrink-0",
-                                    line.type === "addition" &&
-                                      "text-green-500",
-                                    line.type === "deletion" && "text-red-500"
-                                  )}
-                                >
-                                  {line.type === "addition"
-                                    ? "+"
-                                    : line.type === "deletion"
-                                    ? "-"
-                                    : " "}
-                                </span>
-                                <span
-                                  className={cn(
-                                    "flex-1",
-                                    line.type === "addition" &&
-                                      "text-green-400",
-                                    line.type === "deletion" && "text-red-400",
-                                    line.type === "context" &&
-                                      "text-muted-foreground"
-                                  )}
-                                >
-                                  {line.content}
+                                <span className="text-xs text-muted-foreground">
+                                  {file.status}
                                 </span>
                               </div>
-                            ))}
-                          </pre>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-xs text-green-500">+{file.additions}</span>
+                            <span className="text-xs text-red-500">-{file.deletions}</span>
+                            <ChevronDown
+                              className={cn(
+                                "w-3.5 h-3.5 text-muted-foreground transition-transform duration-200",
+                                isExpanded && "rotate-180"
+                              )}
+                            />
+                          </div>
+                        </button>
+
+                        {/* Code diff */}
+                        <div
+                          className={cn(
+                            "overflow-hidden transition-all duration-200",
+                            isExpanded ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
+                          )}
+                        >
+                          <div className="border-t border-border bg-code-bg">
+                            <pre className="p-3 text-xs font-mono overflow-x-auto max-h-[500px] overflow-y-auto">
+                              {file.patch ? (
+                                file.patch.split('\n').map((line: string, i: number) => (
+                                  <div
+                                    key={i}
+                                    className={cn(
+                                      "px-2 -mx-2",
+                                      line.startsWith('+') && !line.startsWith('+++') && "bg-green-500/10 text-green-400",
+                                      line.startsWith('-') && !line.startsWith('---') && "bg-red-500/10 text-red-400",
+                                      line.startsWith('@@') && "text-blue-400 bg-blue-500/10"
+                                    )}
+                                  >
+                                    {line || ' '}
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-muted-foreground italic">No diff available</div>
+                              )}
+                            </pre>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Select a commit to view file changes
+                  </div>
+                )}
               </div>
             </>
           )}

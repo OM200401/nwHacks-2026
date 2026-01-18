@@ -57,6 +57,8 @@ export default function LandingPage() {
   const [availableRepos, setAvailableRepos] = useState<any[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<any>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState("");
 
 
   useOAuthCallback();
@@ -135,6 +137,9 @@ useEffect(() => {
   const t = localStorage.getItem("access_token");
   if (!t || !question.trim()) return;
 
+  setAnalyzing(true);
+  setAnalysisStep("Analyzing repository...");
+
   // Use selectedRepo if available, otherwise parse repoUrl
   let owner, repo_name, full_name, github_repo_id, html_url, default_branch;
   
@@ -149,41 +154,88 @@ useEffect(() => {
     default_branch = selectedRepo.default_branch || "main";
   } else {
     const parsed = parseGithubRepo(repoUrl);
-    if (!parsed) return;
+    if (!parsed) {
+      setAnalyzing(false);
+      return;
+    }
     owner = parsed.owner;
     repo_name = parsed.repo;
     full_name = `${parsed.owner}/${parsed.repo}`;
   }
 
-  const res = await fetch(`${API_BASE}/api/repositories/analyze`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${t}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      owner,
-      repo_name,
-      full_name,
-      github_repo_id,
-      html_url,
-      default_branch
-    }),
-  });
+  try {
+    const res = await fetch(`${API_BASE}/api/repositories/analyze`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${t}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        owner,
+        repo_name,
+        full_name,
+        github_repo_id,
+        html_url,
+        default_branch
+      }),
+    });
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: "Failed to analyze repository" }));
-    alert(error.detail || "Failed to analyze repository");
-    return;
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: "Failed to analyze repository" }));
+      alert(error.detail || "Failed to analyze repository");
+      setAnalyzing(false);
+      return;
+    }
+
+    const data = await res.json();
+
+    // store question + repo id somewhere (state manager / query params)
+    sessionStorage.setItem("last_question", question);
+    sessionStorage.setItem("analysis_id", data.repository.id);
+
+    const repoId = data.repository.id;
+
+    // Step 2: Fetch commits from GitHub
+    setAnalysisStep("Fetching commits from GitHub...");
+    const fetchRes = await fetch(`${API_BASE}/api/repositories/${repoId}/fetch-commits?page=1&per_page=100`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${t}`,
+      },
+    });
+
+    if (!fetchRes.ok) {
+      console.error("Failed to fetch commits");
+    }
+
+    // Step 3: Generate embeddings
+    setAnalysisStep("Generating AI embeddings...");
+    const embedRes = await fetch(`${API_BASE}/api/repositories/${repoId}/cortex-embed`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${t}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "e5-base-v2",
+        batch_size: 100,
+      }),
+    });
+
+    if (!embedRes.ok) {
+      console.error("Failed to generate embeddings");
+    } else {
+      console.log("✅ Embeddings generated successfully");
+    }
+
+    navigate("/analyze");
+  } catch (error) {
+    console.error("Analysis error:", error);
+    alert("Failed to analyze repository. Please try again.");
+  } finally {
+    setAnalyzing(false);
+    setAnalysisStep("");
   }
-
-  const data = await res.json();
-
-  // store question + repo id somewhere (state manager / query params)
-  sessionStorage.setItem("last_question", question);
-  sessionStorage.setItem("analysis_id", data.repository.id);
-
-  navigate("/analyze");
 };
 
 
@@ -385,12 +437,21 @@ useEffect(() => {
 
             <Button 
               onClick={handleAsk} 
-              disabled={!isConnected || !question.trim()}
+              disabled={!isConnected || !question.trim() || analyzing}
               className="w-full mt-4 h-12 gap-2 text-base"
             >
-              <Sparkles className="w-4 h-4" />
-              Analyze Code History
-              <ArrowRight className="w-4 h-4" />
+              {analyzing ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
+                  {analysisStep}
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Analyze Code History
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </Button>
           </div>
         </div>
