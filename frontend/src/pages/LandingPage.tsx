@@ -477,13 +477,6 @@ useEffect(() => {
         {/* Social proof */}
         <div className="text-center mt-16 animate-fade-in" style={{ animationDelay: "0.6s" }}>
           <p className="text-sm text-muted-foreground mb-4">Built for developers who inherit code without context</p>
-          <div className="flex items-center justify-center gap-8 opacity-50">
-            {["Stripe", "Vercel", "Linear", "Notion"].map((company) => (
-              <span key={company} className="font-semibold text-muted-foreground">
-                {company}
-              </span>
-            ))}
-          </div>
         </div>
       </main>
 
