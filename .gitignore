@@ -223,3 +223,8 @@ dist-ssr/
 out/
 .cache/
 .turbo/
+
+# Ignore AGENTIC files
+AGENTS.md
+CLAUDE.md
+.claude

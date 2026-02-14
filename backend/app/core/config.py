@@ -8,7 +8,7 @@ Sponsor: 1Password - https://1password.com
 """
 
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
 import os
 import logging
 
@@ -75,17 +75,51 @@ class Settings(BaseSettings):
     SNOWFLAKE_WAREHOUSE: str = "COMPUTE_WH"
     
     # JWT Settings - Loaded from 1Password
-    JWT_SECRET_KEY: str = "changeme"
+    JWT_SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
-    
+
     # Application Settings
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    DEBUG: bool = True
-    
+    DEBUG: bool = False
+
+    # Deployment / Environment
+    ENVIRONMENT: str = "development"
+    FRONTEND_URL: str = "http://localhost:8080"
+    CORS_ORIGINS: str = ""
+    REDIS_URL: str = ""
+    ENCRYPTION_KEY: str = ""
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT == "production"
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Parse CORS_ORIGINS comma-separated string into a list."""
+        if self.CORS_ORIGINS:
+            return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+        return [self.FRONTEND_URL]
+
+    @property
+    def effective_redis_url(self) -> str:
+        """Get Redis URL, falling back to host:port."""
+        if self.REDIS_URL:
+            return self.REDIS_URL
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}"
+
+    @property
+    def github_redirect_uri(self) -> str:
+        """Get GitHub redirect URI, requiring explicit config in production."""
+        if self.GITHUB_REDIRECT_URI:
+            return self.GITHUB_REDIRECT_URI
+        if self.is_production:
+            raise ValueError("GITHUB_REDIRECT_URI must be set in production")
+        return "http://localhost:8000/auth/github/callback"
+
     class Config:
         env_file = ".env"
         case_sensitive = True
@@ -106,3 +140,17 @@ if ONEPASSWORD_AVAILABLE and os.getenv("OP_SERVICE_ACCOUNT_TOKEN"):
     logger.info("📁 Using environment variables from .env file (1Password integration available)")
 else:
     logger.info("📁 Using environment variables from .env file")
+
+# Validate required secrets in production
+if settings.is_production:
+    _missing = []
+    if not settings.JWT_SECRET_KEY:
+        _missing.append("JWT_SECRET_KEY")
+    if not settings.ENCRYPTION_KEY:
+        _missing.append("ENCRYPTION_KEY")
+    if not settings.GITHUB_CLIENT_ID:
+        _missing.append("GITHUB_CLIENT_ID")
+    if not settings.GITHUB_CLIENT_SECRET:
+        _missing.append("GITHUB_CLIENT_SECRET")
+    if _missing:
+        raise ValueError(f"Production deployment missing required secrets: {', '.join(_missing)}")
