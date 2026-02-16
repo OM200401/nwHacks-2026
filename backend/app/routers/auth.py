@@ -86,7 +86,7 @@ async def github_callback(
                 "client_id": settings.GITHUB_CLIENT_ID,
                 "client_secret": settings.GITHUB_CLIENT_SECRET,
                 "code": code,
-                "redirect_uri": settings.GITHUB_REDIRECT_URI
+                "redirect_uri": settings.github_redirect_uri
             },
             headers={"Accept": "application/json"}
         )
@@ -140,9 +140,14 @@ async def github_callback(
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     
-    # Step 7: Redirect to frontend with token
-    # Frontend will be running on localhost:3000
-    frontend_url = f"http://localhost:8080?access_token={access_token}&user_id={user['id']}&username={user['github_username']}"
+    # Step 7: Redirect to frontend with token in URL fragment (not query params)
+    from urllib.parse import urlencode
+    params = urlencode({
+        "access_token": access_token,
+        "user_id": user["id"],
+        "username": user["github_username"],
+    })
+    frontend_url = f"{settings.FRONTEND_URL}/auth/callback#{params}"
     return RedirectResponse(url=frontend_url)
 
 

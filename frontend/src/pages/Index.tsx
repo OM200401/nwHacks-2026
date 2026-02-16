@@ -17,6 +17,8 @@ import { ExplanationPanel } from "@/components/ExplanationPanel";
 import { useNavigate } from "react-router-dom";
 import { fetchCommitDetails } from "@/lib/api";
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+
 // High-level commit nodes for graph view
 type CommitNode = {
   id: string;
@@ -267,7 +269,7 @@ const Index = () => {
       console.log("🔑 Using token:", token.substring(0, 20) + "...");
 
       const res = await fetch(
-        `http://localhost:8000/api/repositories/${repoId}/cortex-query`,
+        `${API_BASE}/api/repositories/${repoId}/cortex-query`,
         {
           method: "POST",
           headers: {
