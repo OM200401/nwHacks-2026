@@ -23,7 +23,7 @@ def get_github_oauth_url(state: str) -> str:
     return (
         f"{GITHUB_AUTHORIZE_URL}"
         f"?client_id={settings.GITHUB_CLIENT_ID}"
-        f"&redirect_uri={settings.GITHUB_REDIRECT_URI}"
+        f"&redirect_uri={settings.github_redirect_uri}"
         f"&scope={scope_string}"
         f"&state={state}"
     )
