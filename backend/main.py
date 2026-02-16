@@ -62,7 +62,13 @@ async def lifespan(app: FastAPI):
     snowflake_service.close()
 
 
-app = FastAPI(title="CodeAncestry API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="CodeAncestry API",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/docs" if not settings.is_production else None,
+    redoc_url="/redoc" if not settings.is_production else None,
+)
 
 app.add_middleware(
     CORSMiddleware,
