@@ -13,7 +13,8 @@ Why Snowflake Cortex?
 - Multiple embedding models available
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
+from app.security.rate_limiter import rate_limit
 from typing import List, Optional
 from pydantic import BaseModel
 import logging
@@ -152,7 +153,7 @@ async def generate_embeddings_with_cortex(
 # STEP 2: RAG Query Using Snowflake Cortex
 # ============================================================================
 
-@router.post("/repositories/{repo_id}/cortex-query")
+@router.post("/repositories/{repo_id}/cortex-query", dependencies=[Depends(rate_limit(30, 60))])
 async def query_with_cortex(
     repo_id: str,
     request: QueryRequest,

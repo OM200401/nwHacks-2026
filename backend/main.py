@@ -37,10 +37,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Failed to initialize Snowflake database: {e}")
         logger.warning("⚠️ Application will continue without Snowflake (check credentials)")
-    
+
+    # Initialize Redis
+    from app.services.redis_service import init_redis, close_redis
+    try:
+        redis_client = init_redis()
+        if redis_client:
+            from app.security.rate_limiter import init_rate_limiter
+            init_rate_limiter(redis_client)
+            logger.info("✅ Redis initialized for rate limiting and OAuth state")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Redis: {e}")
+        if settings.ENVIRONMENT == "production":
+            raise
+        logger.warning("⚠️ Continuing without Redis (development mode)")
+
     yield
-    
+
     logger.info("👋 Shutting down...")
+    try:
+        close_redis()
+    except Exception:
+        pass
     snowflake_service.close()
 
 

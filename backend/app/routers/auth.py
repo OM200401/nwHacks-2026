@@ -16,15 +16,17 @@ from app.core.github_config import (
 from app.core.config import settings
 from app.security.auth import create_access_token, get_current_user
 from app.security.encryption import encrypt_github_token, store_token_in_1password
+from app.security.rate_limiter import rate_limit
+from app.services.redis_service import get_redis_client
 from app.database.snowflake_crud import create_or_update_user
 
 router = APIRouter()
 
-# In-memory state storage (use Redis in production)
-oauth_states = {}
+# In-memory fallback for OAuth state (dev only; production uses Redis)
+_oauth_states_fallback = {}
 
 
-@router.get("/github")
+@router.get("/github", dependencies=[Depends(rate_limit(10, 60))])
 async def github_login():
     """
     Initiate GitHub OAuth flow
@@ -33,7 +35,11 @@ async def github_login():
     """
     # Generate random state for CSRF protection
     state = secrets.token_urlsafe(32)
-    oauth_states[state] = True  # Store state temporarily
+    redis_client = get_redis_client()
+    if redis_client:
+        redis_client.setex(f"oauth_state:{state}", 600, "1")
+    else:
+        _oauth_states_fallback[state] = True
     
     auth_url = get_github_oauth_url(state)
     
@@ -43,7 +49,7 @@ async def github_login():
     }
 
 
-@router.get("/github/callback")
+@router.get("/github/callback", dependencies=[Depends(rate_limit(10, 60))])
 async def github_callback(
     code: str = Query(..., description="Authorization code from GitHub"),
     state: str = Query(..., description="State parameter for CSRF protection")
@@ -61,12 +67,16 @@ async def github_callback(
     7. Return JWT to frontend
     """
     
-    # Step 1: Verify state
-    if state not in oauth_states:
-        raise HTTPException(status_code=400, detail="Invalid state parameter")
-    
-    # Remove used state
-    del oauth_states[state]
+    # Step 1: Verify state (Redis or in-memory fallback)
+    redis_client = get_redis_client()
+    if redis_client:
+        result = redis_client.getdel(f"oauth_state:{state}")
+        if not result:
+            raise HTTPException(status_code=400, detail="Invalid or expired state parameter")
+    else:
+        if state not in _oauth_states_fallback:
+            raise HTTPException(status_code=400, detail="Invalid state parameter")
+        del _oauth_states_fallback[state]
     
     # Step 2: Exchange code for access token
     async with httpx.AsyncClient() as client:
