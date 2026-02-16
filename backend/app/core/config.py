@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     # GitHub OAuth - Loaded from 1Password
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
-    GITHUB_REDIRECT_URI: str = "http://localhost:8000/auth/github/callback"
+    GITHUB_REDIRECT_URI: str = ""
     
     # API Keys - Loaded from 1Password
     GEMINI_API_KEY: str = ""
