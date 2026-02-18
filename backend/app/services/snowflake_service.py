@@ -22,6 +22,16 @@ class SnowflakeService:
         self.engine = None
         self.Session = None
         
+    def _force_reconnect(self):
+        """Close existing connection and establish a new one."""
+        if self.connection:
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+            self.connection = None
+        return self.get_connection()
+
     def get_connection(self):
         """Get Snowflake connection"""
         if self.connection is None or self.connection.is_closed():
@@ -93,25 +103,41 @@ class SnowflakeService:
         Returns:
             List of result rows as dictionaries (if fetch=True)
         """
+        return self._execute_with_retry(query, params, fetch)
+
+    def _execute_with_retry(self, query: str, params: tuple = None, fetch: bool = True, retried: bool = False):
+        """Execute query with automatic reconnection on expired token."""
         conn = self.get_connection()
         cursor = conn.cursor(DictCursor)
-        
+
         try:
             if params:
                 cursor.execute(query, params)
             else:
                 cursor.execute(query)
-            
+
             if fetch:
                 results = cursor.fetchall()
                 return results
             else:
                 conn.commit()
                 return None
-                
+
+        except (snowflake.connector.errors.ProgrammingError,
+                snowflake.connector.network.ReauthenticationRequest) as e:
+            if not retried and "390114" in str(e):
+                logger.warning("Snowflake token expired, reconnecting...")
+                cursor.close()
+                self._force_reconnect()
+                return self._execute_with_retry(query, params, fetch, retried=True)
+            logger.error(f"Query execution error: {e}")
+            raise
         except Exception as e:
             logger.error(f"Query execution error: {e}")
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             raise
         finally:
             cursor.close()
