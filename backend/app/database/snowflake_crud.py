@@ -4,6 +4,7 @@ Replaces in-memory dictionaries with Snowflake tables
 """
 
 from typing import List, Optional, Dict, Any
+import asyncio
 import uuid
 from datetime import datetime
 import json
@@ -11,6 +12,17 @@ from app.services.snowflake_service import snowflake_service
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+async def _run_query(query: str, params: tuple = None, fetch: bool = True):
+    """Run a Snowflake query off the event loop, bounded by the connector's own timeouts.
+
+    Without this, a hung/unreachable warehouse blocks the entire single-threaded
+    event loop for every concurrent request (notably the GitHub OAuth callback).
+    """
+    return await asyncio.to_thread(
+        snowflake_service.execute_query, query, params, fetch
+    )
 
 
 # ==================== USERS ====================
@@ -22,10 +34,10 @@ async def create_or_update_user(
     email: Optional[str] = None
 ) -> Optional[Dict]:
     """Create new user or update existing"""
-    
+
     # Check if user exists
     existing_user = await get_user_by_github_id(github_id)
-    
+
     if existing_user:
         # Update existing user
         query = """
@@ -36,33 +48,33 @@ async def create_or_update_user(
             last_login = CURRENT_TIMESTAMP()
         WHERE github_id = %s
         """
-        snowflake_service.execute_query(
+        await _run_query(
             query,
             params=(github_username, encrypted_token_ref, email, github_id),
             fetch=False
         )
         # Fetch updated user
         return await get_user_by_github_id(github_id)
-    
+
     # Create new user
     user_id = str(uuid.uuid4())
     query = """
     INSERT INTO users (id, github_id, github_username, encrypted_token_ref, email)
     VALUES (%s, %s, %s, %s, %s)
     """
-    snowflake_service.execute_query(
+    await _run_query(
         query,
         params=(user_id, github_id, github_username, encrypted_token_ref, email),
         fetch=False
     )
-    
+
     return await get_user_by_id(user_id)
 
 
 async def get_user_by_id(user_id: str) -> Optional[Dict]:
     """Get user by ID"""
     query = "SELECT * FROM users WHERE id = %s"
-    result = snowflake_service.execute_query(query, params=(user_id,), fetch=True)
+    result = await _run_query(query, params=(user_id,), fetch=True)
     if result:
         user = dict(result[0])
         return {k.lower(): v for k, v in user.items()}
@@ -72,7 +84,7 @@ async def get_user_by_id(user_id: str) -> Optional[Dict]:
 async def get_user_by_github_id(github_id: str) -> Optional[Dict]:
     """Get user by GitHub ID"""
     query = "SELECT * FROM users WHERE github_id = %s"
-    result = snowflake_service.execute_query(query, params=(github_id,), fetch=True)
+    result = await _run_query(query, params=(github_id,), fetch=True)
     if result:
         user = dict(result[0])
         return {k.lower(): v for k, v in user.items()}

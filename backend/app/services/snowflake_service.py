@@ -3,6 +3,7 @@ Snowflake database service for CodeAncestry
 Handles connection and table operations
 """
 
+import asyncio
 import snowflake.connector
 from snowflake.connector import DictCursor
 from sqlalchemy import create_engine
@@ -40,7 +41,9 @@ class SnowflakeService:
                     account=settings.SNOWFLAKE_ACCOUNT,
                     user=settings.SNOWFLAKE_USER,
                     password=settings.SNOWFLAKE_PASSWORD,
-                    warehouse=settings.SNOWFLAKE_WAREHOUSE
+                    warehouse=settings.SNOWFLAKE_WAREHOUSE,
+                    login_timeout=10,
+                    network_timeout=10,
                 )
                 logger.info("✅ Snowflake connection established")
                 
@@ -153,17 +156,25 @@ class SnowflakeService:
 snowflake_service = SnowflakeService()
 
 
+def _create_all_tables():
+    create_users_table()
+    create_repositories_table()
+    create_commits_table()
+    create_pr_analysis_table()
+
+
 async def init_database():
     """Initialize database tables"""
     logger.info("Initializing Snowflake database schema...")
-    
+
     try:
-        # Create tables (database and schema already set in get_connection)
-        create_users_table()
-        create_repositories_table()
-        create_commits_table()
-        create_pr_analysis_table()
+        # Run blocking Snowflake I/O off the event loop so a slow/unreachable
+        # warehouse can't freeze request handling (e.g. the OAuth callback).
+        await asyncio.wait_for(asyncio.to_thread(_create_all_tables), timeout=15)
         logger.info("✅ Database schema initialized successfully")
+    except asyncio.TimeoutError:
+        logger.error("❌ Snowflake initialization timed out after 15s")
+        raise
     except Exception as e:
         logger.error(f"❌ Failed to initialize database: {e}")
         raise

@@ -16,26 +16,9 @@ const startGithubLogin = async () => {
     window.location.href = data.auth_url;
   } catch (e) {
     console.error(e);
-    alert(e.message ?? "Failed to start GitHub login");
+    alert(e instanceof Error ? e.message : "Failed to start GitHub login");
   }
 };
-
-
-function useOAuthCallback() {
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-
-    console.log("[OAuth] callback params:", Object.fromEntries(params.entries()));
-    const accessToken = params.get("access_token");
-
-    if (accessToken) {
-      localStorage.setItem("access_token", accessToken);
-
-      // clean the URL (remove token from address bar)
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, []);
-}
 
 function parseGithubRepo(url: string) {
   // supports https://github.com/owner/repo or owner/repo
@@ -63,9 +46,7 @@ export default function LandingPage() {
   const [userQuestion, setUserQuestion] = useState("");
 
 
-  useOAuthCallback();
-
-    useEffect(() => {
+  useEffect(() => {
   setIsConnected(!!localStorage.getItem("access_token"));
 }, []);
 
